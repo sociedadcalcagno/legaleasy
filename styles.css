@@ -497,6 +497,15 @@ a {
   font-weight: 800;
 }
 
+.service-content {
+  margin-top: 1rem;
+}
+
+.service-content p {
+  margin: 0;
+  line-height: 1.65;
+}
+
 .service-card h3,
 .step-card h3 {
   margin-top: 0;
