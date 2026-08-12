@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" role="img" aria-labelledby="title">
+  <title id="title">LegalEasy</title>
+  <rect width="220" height="64" rx="18" fill="none"/>
+  <g transform="translate(8 8)">
+    <rect width="48" height="48" rx="14" fill="#172033"/>
+    <path d="M24 10v27" fill="none" stroke="#f3d59b" stroke-width="3" stroke-linecap="round"/>
+    <path d="M12 19h24" fill="none" stroke="#f3d59b" stroke-width="3" stroke-linecap="round"/>
+    <path d="M16 19l-7 13h14l-7-13zM32 19l-7 13h14l-7-13z" fill="none" stroke="#f3d59b" stroke-width="2.4" stroke-linejoin="round"/>
+    <path d="M15 40h18" fill="none" stroke="#f3d59b" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <text x="68" y="40" fill="#172033" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="25" font-weight="800" letter-spacing="-1.2">LegalEasy</text>
+</svg>
