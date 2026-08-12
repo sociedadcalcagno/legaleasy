@@ -7,7 +7,7 @@ loadEnvFile();
 const PORT = Number(process.env.PORT || 3001);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:1b";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434/api/generate";
 const rootDir = __dirname;
 
@@ -28,6 +28,18 @@ const servicePrompts = {
   laboral: "Responde como un asistente de orientacion laboral general. Explica de manera equilibrada para empleadores y trabajadores, con cautela y sin sustituir asesoria profesional.",
   "proteccion-marca": "Responde como un asistente inicial de marca y activos intangibles. Explica por que importa proteger el nombre comercial, revisar disponibilidad y cuidar la identidad del negocio.",
   "cumplimiento-prevencion": "Responde como un asistente de prevencion legal. Explica como identificar riesgos, ordenar procesos y revisar documentos antes de que aparezcan conflictos."
+};
+
+const serviceLabels = {
+  "consultas-legales": "Consultas legales",
+  "revision-contratos": "Revision de contratos",
+  "apoyo-pymes": "Apoyo a pymes",
+  "constitucion-empresas": "Constitucion de empresas",
+  "documentos-escritos": "Documentos y escritos",
+  "reclamaciones-defensa": "Reclamaciones y defensa",
+  laboral: "Laboral",
+  "proteccion-marca": "Proteccion de marca y activos",
+  "cumplimiento-prevencion": "Cumplimiento y prevencion"
 };
 
 const server = http.createServer(async (request, response) => {
@@ -61,7 +73,9 @@ async function handleChat(request, response) {
 
   const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
 
-  if (!servicePrompts[service]) {
+  const detectedService = service === "auto" ? detectService(message, documentContext, history) : service;
+
+  if (!servicePrompts[detectedService]) {
     sendJson(response, 400, { error: "Servicio no valido" });
     return;
   }
@@ -71,7 +85,7 @@ async function handleChat(request, response) {
     return;
   }
 
-  const ollamaAnswer = await tryOllama(service, message, enrichedDocumentContext, history);
+  const ollamaAnswer = await tryOllama(detectedService, message, enrichedDocumentContext, history);
 
   if (ollamaAnswer) {
     sendJson(response, 200, {
@@ -83,7 +97,7 @@ async function handleChat(request, response) {
 
   if (!OPENAI_API_KEY) {
     sendJson(response, 200, {
-      answer: buildFallbackAnswer(service, message, enrichedDocumentContext),
+      answer: buildFallbackAnswer(detectedService, message, enrichedDocumentContext, history),
       fallback: true
     });
     return;
@@ -94,7 +108,7 @@ async function handleChat(request, response) {
       role: "system",
       content: [
         "Eres el asistente de LegalEasy.",
-        servicePrompts[service],
+        servicePrompts[detectedService],
         "Aclara que tu respuesta es orientativa y no reemplaza asesoria legal personalizada.",
         "Si falta contexto, indica de forma amable que datos o documentos ayudarian.",
         "Si recibes un documento, resume primero lo relevante, luego riesgos, puntos dudosos y pasos recomendados.",
@@ -135,7 +149,7 @@ async function handleChat(request, response) {
     });
   } catch {
     sendJson(response, 200, {
-      answer: buildFallbackAnswer(service, message, enrichedDocumentContext),
+      answer: buildFallbackAnswer(detectedService, message, enrichedDocumentContext, history),
       fallback: true
     });
     return;
@@ -145,7 +159,7 @@ async function handleChat(request, response) {
 
   if (!apiResponse.ok) {
     sendJson(response, 200, {
-      answer: buildFallbackAnswer(service, message, enrichedDocumentContext),
+      answer: buildFallbackAnswer(detectedService, message, enrichedDocumentContext, history),
       fallback: true
     });
     return;
@@ -358,6 +372,8 @@ async function tryOllama(service, message, documentContext, history) {
     servicePrompts[service],
     "Responde en espanol chileno neutro, claro y simple.",
     "No des una sentencia definitiva: orienta, resume riesgos y propone siguientes pasos.",
+    "No cites articulos, codigos, numeros de ley ni nombres normativos especificos si el usuario no los entrega. No inventes leyes.",
+    "Si falta informacion, haz preguntas concretas antes de concluir.",
     "No menciones limitaciones tecnicas ni proveedores de IA.",
     documentContext?.text ? `Documento adjunto (${documentContext.name}):\n${documentContext.text}` : "",
     history.map((item) => `${item.role === "assistant" ? "Agente" : "Usuario"}: ${item.content}`).join("\n"),
@@ -378,7 +394,7 @@ async function tryOllama(service, message, documentContext, history) {
           num_predict: 900
         }
       }),
-      signal: AbortSignal.timeout(2500)
+      signal: AbortSignal.timeout(45000)
     });
 
     if (!response.ok) {
@@ -392,82 +408,39 @@ async function tryOllama(service, message, documentContext, history) {
   }
 }
 
-function buildFallbackAnswer(service, message, documentContext = null) {
-  const normalizedMessage = String(message || "").toLowerCase();
-  const intro = "Te dejo una orientacion inicial en lenguaje simple para ordenar tu consulta y avanzar con mayor claridad.";
-
-  const fallbacks = {
-    "consultas-legales": [
-      "Empieza por ordenar los hechos: que paso, cuando paso y que documentos tienes.",
-      "Reune contratos, mensajes, correos, recibos o notificaciones relacionadas.",
-      "Identifica que decision necesitas tomar: reclamar, responder, firmar, negociar o esperar.",
-      "Si hay plazos o amenazas de sancion, eso debe revisarse primero."
-    ],
-    "revision-contratos": [
-      "Revisa obligaciones, plazos, penalidades y causales de terminacion.",
-      "Verifica si hay renovacion automatica, exclusividad o multas desproporcionadas.",
-      "Comprueba que lo prometido verbalmente si este escrito en el contrato.",
-      "No firmes si hay clausulas ambiguas sobre pagos, responsabilidades o salidas."
-    ],
-    "apoyo-pymes": [
-      "Define que documentos usa hoy tu negocio con clientes, proveedores y aliados.",
-      "Revisa si tienes terminos claros de pago, entrega, responsabilidad y cancelacion.",
-      "Ordena procesos repetitivos para reducir errores y conflictos futuros.",
-      "Lo mas valioso aqui es prevenir antes de que el problema escale."
-    ],
-    "constitucion-empresas": [
-      "Primero define quienes participan, como se reparten funciones y que actividad tendra el negocio.",
-      "Luego revisa la estructura juridica que mejor encaja con el proyecto.",
-      "Prepara la documentacion base y valida que el negocio pueda operar formalmente.",
-      "Conviene dejar claras las reglas internas desde el inicio."
-    ],
-    "documentos-escritos": [
-      "Antes de redactar, define objetivo, destinatario y resultado esperado.",
-      "Incluye hechos, fechas, nombres y documentos de respaldo.",
-      "Usa lenguaje claro y peticiones concretas, sin mezclar temas distintos.",
-      "Revisa tono, precision y pruebas antes de enviarlo."
-    ],
-    "reclamaciones-defensa": [
-      "No ignores un reclamo sin revisarlo primero.",
-      "Analiza que te estan pidiendo, en que plazo y con que fundamentos.",
-      "Ordena pruebas, comunicaciones previas y documentos relacionados.",
-      "Responder con criterio suele ser mejor que improvisar o reaccionar en caliente."
-    ],
-    laboral: [
-      "Aclara si consultas como trabajador o como empleador.",
-      "Reune contrato, recibos, mensajes y comunicaciones laborales relevantes.",
-      "Identifica si el problema es contratacion, funciones, pagos, sanciones o desvinculacion.",
-      "Si existe plazo o notificacion formal, revisalo como prioridad."
-    ],
-    "proteccion-marca": [
-      "Lo primero es validar si el nombre o identidad que usas puede generar conflicto con terceros.",
-      "Tambien conviene revisar como estas usando logo, nombre comercial y activos digitales.",
-      "Proteger la marca ayuda a evitar choques futuros y perdida de valor.",
-      "Documentar uso y prioridad del nombre suele ser util desde etapas tempranas."
-    ],
-    "cumplimiento-prevencion": [
-      "Revisa primero los procesos donde mas se repiten errores o reclamos.",
-      "Haz una lista de documentos sensibles: contratos, autorizaciones, comunicaciones y politicas.",
-      "La prevencion legal busca corregir antes de que el conflicto exista.",
-      "Pequenos ajustes en procesos suelen evitar costos mayores despues."
-    ]
-  };
-
-  const lines = fallbacks[service] || [
-    "Reune el contexto principal del caso.",
-    "Ordena los documentos importantes.",
-    "Define que decision necesitas tomar y si existe urgencia o plazo."
+function detectService(message, documentContext, history = []) {
+  const historyText = history.map((item) => item?.content || "").join(" ");
+  const text = `${message || ""} ${historyText} ${documentContext?.name || ""} ${documentContext?.text || ""}`.toLowerCase();
+  const checks = [
+    ["revision-contratos", ["contrato", "clausula", "firmar", "arriendo", "compraventa", "servicio", "penalidad", "multa", "renovacion"]],
+    ["laboral", ["despido", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "contratacion"]],
+    ["reclamaciones-defensa", ["reclamo", "intimacion", "notificacion", "demanda", "defensa", "responder", "plazo", "deuda"]],
+    ["constitucion-empresas", ["constituir", "empresa", "sociedad", "rut empresa", "inicio de actividades", "emprendimiento"]],
+    ["documentos-escritos", ["carta", "solicitud", "escrito", "poder", "acuerdo", "redactar", "documento"]],
+    ["apoyo-pymes", ["pyme", "negocio", "proveedor", "cliente", "facturacion", "operacion", "comercial"]],
+    ["proteccion-marca", ["marca", "logo", "dominio", "nombre comercial", "registro", "propiedad intelectual"]],
+    ["cumplimiento-prevencion", ["cumplimiento", "prevencion", "riesgo", "politica", "normativa", "sancion", "control"]]
   ];
 
-  let tailored = "";
+  let bestService = "consultas-legales";
+  let bestScore = 0;
 
-  if (normalizedMessage.includes("contrato") || normalizedMessage.includes("firm")) {
-    tailored = "Por lo que preguntas, parece importante revisar obligaciones, pagos, penalidades, renovacion y salida del acuerdo antes de avanzar.";
-  } else if (normalizedMessage.includes("despido") || normalizedMessage.includes("trabajo") || normalizedMessage.includes("labor")) {
-    tailored = "Por el tipo de consulta, conviene ordenar fechas, comunicaciones y documentos laborales para evaluar riesgos y opciones.";
-  } else if (normalizedMessage.includes("empresa") || normalizedMessage.includes("negocio") || normalizedMessage.includes("pyme")) {
-    tailored = "Tu duda parece vinculada a operacion de negocio, asi que lo mas util es revisar estructura, documentos base y prevencion de riesgos.";
+  for (const [service, keywords] of checks) {
+    const score = keywords.reduce((total, keyword) => total + (text.includes(keyword) ? 1 : 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestService = service;
+    }
   }
+
+  return bestService;
+}
+
+function buildFallbackAnswer(service, message, documentContext = null, history = []) {
+  const normalizedMessage = String(message || "").toLowerCase();
+  const previousUserMessages = history.filter((item) => item?.role === "user").map((item) => item.content).join(" ").toLowerCase();
+  const isFollowUp = previousUserMessages.length > 0;
+  const intentResponse = buildIntentResponse(service, normalizedMessage, previousUserMessages, isFollowUp);
 
   const documentSummary = documentContext?.readable === false ? [
     "Documento adjunto",
@@ -490,12 +463,129 @@ function buildFallbackAnswer(service, message, documentContext = null) {
     "- Confirmar que lo acordado verbalmente aparezca escrito."
   ].join("\n") : "";
 
+  const followUpQuestion = buildFollowUpQuestion(service, normalizedMessage, Boolean(documentContext));
+
   return [
-    "Orientacion inicial",
-    intro,
+    intentResponse.title,
+    `Area detectada\n${serviceLabels[service] || "Consulta general"}`,
+    intentResponse.answer,
     documentSummary,
-    tailored ? `Lectura del caso\n${tailored}` : "",
-    `Puntos recomendados\n${lines.map((line) => `- ${line}`).join("\n")}`,
+    `Acciones concretas\n${intentResponse.actions.map((line) => `- ${line}`).join("\n")}`,
+    followUpQuestion ? `Para afinar la respuesta\n${followUpQuestion}` : "",
     "Importante\nEsta respuesta es orientativa y no reemplaza asesoria legal personalizada. Si hay plazos, montos relevantes o una notificacion formal, conviene revisarlo con un profesional antes de actuar."
   ].filter(Boolean).join("\n\n");
+}
+
+function buildIntentResponse(service, normalizedMessage, previousUserMessages, isFollowUp) {
+  const combined = `${previousUserMessages} ${normalizedMessage}`;
+
+  if (service === "laboral") {
+    if (combined.includes("finiquito")) {
+      return {
+        title: "Revision de finiquito",
+        answer: isFollowUp ? "Sigamos con el finiquito. Antes de firmar, lo importante es comparar lo que te ofrecen con tu contrato, remuneraciones, fecha de termino y causal indicada." : "Si el tema es un finiquito, no conviene firmar apurado. Primero hay que revisar si los montos, causal, vacaciones, indemnizaciones y descuentos estan bien calculados.",
+        actions: ["Pide copia del finiquito antes de firmar.", "Revisa causal de termino, fecha exacta y anos de servicio.", "Compara sueldo base, variables, vacaciones pendientes e indemnizaciones.", "Si algo no cuadra, consulta antes de firmar o firma con reserva si corresponde segun el caso."]
+      };
+    }
+    if (combined.includes("despido")) {
+      return {
+        title: "Orientacion por despido",
+        answer: "Para un despido, lo primero es revisar la carta o comunicacion formal. La causal, los hechos descritos y las fechas son los puntos que normalmente definen si hay base para reclamar o negociar.",
+        actions: ["Guarda carta de despido, contrato, liquidaciones y mensajes relevantes.", "Anota fecha de aviso y fecha real de termino.", "Identifica la causal usada por el empleador.", "No borres conversaciones ni firmes documentos sin leerlos completos."]
+      };
+    }
+  }
+
+  if (service === "revision-contratos") {
+    if (combined.includes("multa") || combined.includes("penalidad")) {
+      return {
+        title: "Revision de multa contractual",
+        answer: "Una multa contractual no se mira sola: hay que revisar que hecho la activa, si el monto es proporcional, si hay aviso previo y si existe forma razonable de terminar o corregir el incumplimiento.",
+        actions: ["Ubica la clausula exacta de multa o penalidad.", "Revisa si aplica por atraso, termino anticipado, incumplimiento o exclusividad.", "Busca si hay plazo de aviso o posibilidad de subsanar.", "Compara la multa con el valor total del contrato."]
+      };
+    }
+    return {
+      title: "Revision de contrato antes de firmar",
+      answer: "Antes de firmar, el foco debe estar en obligaciones, pagos, plazos, salida del contrato y responsabilidades. Un contrato puede verse simple, pero una clausula de renovacion, multa o termino puede cambiar todo.",
+      actions: ["Revisa partes, objeto, precio y plazo.", "Marca clausulas de renovacion, termino anticipado y multas.", "Verifica obligaciones tuyas y de la otra parte.", "Pide que promesas verbales queden escritas."]
+    };
+  }
+
+  if (service === "reclamaciones-defensa") {
+    return {
+      title: "Respuesta a reclamo o notificacion",
+      answer: "Si recibiste un reclamo, lo peor es responder en caliente o ignorarlo. Primero hay que entender que piden, que plazo existe y con que documentos puedes respaldar tu posicion.",
+      actions: ["Identifica quien reclama y que exige exactamente.", "Revisa plazo para responder.", "Ordena pruebas: contratos, correos, pagos, mensajes y entregas.", "Prepara una respuesta breve, clara y respaldada."]
+    };
+  }
+
+  if (service === "proteccion-marca") {
+    return {
+      title: "Proteccion de marca y activos",
+      answer: "La marca no es solo el nombre: tambien incluye logo, dominio, redes, reputacion y uso comercial. Mientras antes ordenes eso, menos riesgo de conflictos o copias.",
+      actions: ["Define nombre exacto, logo y rubro de uso.", "Revisa si ya existe una marca similar.", "Guarda evidencia de uso: publicaciones, boletas, web o propuestas.", "Ordena dominio, redes y autorizaciones de diseno."]
+    };
+  }
+
+  if (service === "constitucion-empresas") {
+    return {
+      title: "Formalizacion de empresa",
+      answer: "Para constituir una empresa, la decision clave no es solo crearla: es definir socios, roles, aportes, administracion y reglas para evitar conflictos despues.",
+      actions: ["Define quienes seran socios y que aportara cada uno.", "Aclara quien administra y firma por la empresa.", "Define giro, domicilio y forma de repartir utilidades.", "Prepara documentos iniciales y obligaciones posteriores."]
+    };
+  }
+
+  if (service === "documentos-escritos") {
+    return {
+      title: "Preparacion de documento legal",
+      answer: "Un buen escrito debe ser claro, ordenado y pedir algo concreto. Si mezcla muchos temas o no acompana respaldo, pierde fuerza.",
+      actions: ["Define objetivo del escrito.", "Ordena hechos por fecha.", "Agrega documentos que respalden lo que dices.", "Cierra con una solicitud concreta y plazo razonable."]
+    };
+  }
+
+  if (service === "apoyo-pymes") {
+    return {
+      title: "Apoyo legal para negocio",
+      answer: "En una pyme, el valor legal esta en prevenir problemas repetidos: pagos, proveedores, clientes, responsabilidades, documentos y condiciones claras.",
+      actions: ["Revisa contratos o terminos con clientes.", "Ordena condiciones de pago y entrega.", "Define responsables internos de cada proceso.", "Documenta acuerdos importantes por escrito."]
+    };
+  }
+
+  if (service === "cumplimiento-prevencion") {
+    return {
+      title: "Prevencion legal",
+      answer: "Cumplir no es solo evitar sanciones. Tambien es tener procesos claros, evidencia y reglas internas que protejan el negocio si aparece un conflicto.",
+      actions: ["Lista procesos sensibles.", "Revisa documentos que usas todos los meses.", "Define controles basicos y responsables.", "Guarda evidencia de decisiones, aprobaciones y comunicaciones."]
+    };
+  }
+
+  return {
+    title: "Orientacion inicial",
+    answer: isFollowUp ? "Con lo que ya me comentaste, puedo ayudarte a ordenar el siguiente paso. Necesito precisar si buscas revisar un documento, responder a alguien, reclamar o prevenir un problema." : "Para ayudarte bien, primero hay que identificar el tipo de problema legal, si hay documentos involucrados y si existe algun plazo urgente.",
+    actions: ["Cuenta brevemente que paso.", "Indica si hay documento, correo, contrato o notificacion.", "Aclara que resultado buscas.", "Menciona si hay plazo o urgencia."]
+  };
+}
+
+function buildFollowUpQuestion(service, normalizedMessage, hasDocument) {
+  if (hasDocument) {
+    return "Quieres que lo revise enfocado en riesgos, resumen simple, obligaciones principales o puntos para negociar?";
+  }
+
+  if (service === "laboral") {
+    return "Eres trabajador o empleador, y ya existe una carta, finiquito o aviso formal?";
+  }
+
+  if (service === "revision-contratos") {
+    return "Que tipo de contrato es y que clausula te preocupa mas: pago, plazo, multa, termino o renovacion?";
+  }
+
+  if (service === "reclamaciones-defensa") {
+    return "Recibiste una notificacion formal? Si es asi, que plazo te dieron para responder?";
+  }
+
+  if (normalizedMessage.includes("marca")) {
+    return "Ya usas esa marca publicamente o estas evaluando registrarla antes de lanzarla?";
+  }
+
+  return "Quieres que te ayude a ordenar antecedentes, revisar un documento o definir el siguiente paso?";
 }

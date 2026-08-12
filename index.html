@@ -17,7 +17,7 @@
         <a href="#servicios">Servicios</a>
         <a href="#como-funciona">Como funciona</a>
         <a href="#arkodata">ArkoData</a>
-        <a href="#asistente">Recursos</a>
+        <a href="#asistente">Asistencia</a>
         <a href="#contacto" class="nav-cta">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M7 3v3M17 3v3M4 9h16M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"></path>
@@ -326,6 +326,47 @@
       </div>
     </section>
   </main>
+  <button class="floating-agent" id="floating-agent-toggle" type="button" aria-label="Abrir Agente LegalEasy" aria-expanded="false">
+    <span class="floating-agent-icon">LE</span>
+    <span>
+      <strong>Agente LegalEasy</strong>
+      <small>Asistencia legal ahora</small>
+    </span>
+  </button>
+  <section class="agent-widget" id="agent-widget" aria-hidden="true" aria-label="Agente LegalEasy flotante">
+    <div class="agent-widget-header">
+      <div class="agent-widget-profile">
+        <span class="agent-widget-avatar">LE</span>
+        <div>
+          <strong>Agente LegalEasy</strong>
+          <small>Orientacion legal simple</small>
+        </div>
+      </div>
+      <div class="agent-widget-actions">
+        <button type="button" id="agent-widget-section" aria-label="Ir a seccion completa">Seccion</button>
+        <button type="button" id="agent-widget-minimize" aria-label="Minimizar agente">_</button>
+      </div>
+    </div>
+    <div class="agent-widget-body" id="agent-widget-body">
+      <article class="agent-widget-message assistant">
+        <strong>LegalEasy</strong>
+        <p>Senal: Agente conversacional v2 activo. Escribe tu consulta y detectare automaticamente el area legal.</p>
+      </article>
+    </div>
+    <form class="agent-widget-form" id="agent-widget-form">
+      <div class="agent-widget-tools">
+        <label class="agent-widget-upload">
+          <input id="agent-widget-file" type="file" accept=".txt,.md,.csv,.json,.html,.htm,.pdf,.doc,.docx">
+          <span>Subir documento</span>
+        </label>
+        <small id="agent-widget-file-status">El agente detecta el area legal automaticamente.</small>
+      </div>
+      <div class="agent-widget-input-row">
+        <textarea id="agent-widget-input" rows="2" placeholder="Escribe tu consulta legal..."></textarea>
+        <button type="submit">Enviar</button>
+      </div>
+    </form>
+  </section>
   <div class="image-modal" id="image-modal" aria-hidden="true">
     <div class="image-modal-backdrop" data-modal-close></div>
     <div class="image-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="image-modal-title">

@@ -179,10 +179,21 @@ const imageModalImg = document.querySelector("#image-modal-img");
 const imageModalTitle = document.querySelector("#image-modal-title");
 const modalImageButtons = document.querySelectorAll("[data-modal-image]");
 const modalCloseButtons = document.querySelectorAll("[data-modal-close]");
+const floatingAgentToggle = document.querySelector("#floating-agent-toggle");
+const agentWidget = document.querySelector("#agent-widget");
+const agentWidgetMinimize = document.querySelector("#agent-widget-minimize");
+const agentWidgetSection = document.querySelector("#agent-widget-section");
+const agentWidgetForm = document.querySelector("#agent-widget-form");
+const agentWidgetInput = document.querySelector("#agent-widget-input");
+const agentWidgetFile = document.querySelector("#agent-widget-file");
+const agentWidgetFileStatus = document.querySelector("#agent-widget-file-status");
+const agentWidgetBody = document.querySelector("#agent-widget-body");
 
 let currentQuestionIndex = 0;
 let documentContext = null;
+let widgetDocumentContext = null;
 const conversationHistory = [];
+const widgetHistory = [];
 
 function renderQuestions(serviceKey) {
   const service = serviceData[serviceKey];
@@ -454,5 +465,174 @@ function closeImageModal() {
   imageModal.setAttribute("aria-hidden", "true");
   imageModalImg.src = "";
 }
+
+function openAgentWidget() {
+  agentWidget.classList.add("is-open");
+  agentWidget.setAttribute("aria-hidden", "false");
+  floatingAgentToggle.setAttribute("aria-expanded", "true");
+  agentWidgetInput.focus();
+}
+
+function minimizeAgentWidget() {
+  agentWidget.classList.remove("is-open");
+  agentWidget.setAttribute("aria-hidden", "true");
+  floatingAgentToggle.setAttribute("aria-expanded", "false");
+}
+
+function addWidgetMessage(role, text) {
+  const article = document.createElement("article");
+  article.className = `agent-widget-message ${role}`;
+  const label = document.createElement("strong");
+  label.textContent = role === "assistant" ? "LegalEasy" : "Tu";
+  const paragraph = document.createElement("p");
+  paragraph.textContent = text;
+  article.appendChild(label);
+  article.appendChild(paragraph);
+  agentWidgetBody.appendChild(article);
+  agentWidgetBody.scrollTop = agentWidgetBody.scrollHeight;
+}
+
+async function sendWidgetMessage(message) {
+  addWidgetMessage("user", message);
+  const requestHistory = widgetHistory.slice(-8);
+  widgetHistory.push({ role: "user", content: message });
+  addWidgetMessage("assistant", "Estoy revisando tu consulta...");
+  const pendingMessage = agentWidgetBody.lastElementChild;
+
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service: "auto",
+        message,
+        document: widgetDocumentContext,
+        history: requestHistory
+      })
+    });
+    const data = await response.json();
+    pendingMessage.remove();
+    const answer = response.ok ? data.answer : data.error || "No pude responder en este momento.";
+    addWidgetMessage("assistant", answer);
+    widgetHistory.push({ role: "assistant", content: answer });
+  } catch {
+    pendingMessage.remove();
+    addWidgetMessage("assistant", "No pude conectar con el agente en este momento. Intenta nuevamente en unos segundos.");
+  }
+}
+
+async function loadWidgetDocument(file) {
+  const extension = file.name.split(".").pop().toLowerCase();
+  const textExtensions = ["txt", "md", "csv", "json", "html", "htm"];
+  const binaryExtensions = ["pdf", "doc", "docx"];
+
+  if (textExtensions.includes(extension)) {
+    const text = await file.text();
+    const cleanedText = text.replace(/\s+/g, " ").trim().slice(0, 12000);
+    widgetDocumentContext = {
+      name: file.name,
+      type: file.type || extension,
+      text: cleanedText,
+      extension,
+      readable: true
+    };
+    agentWidgetFileStatus.textContent = `${file.name} listo para analizar.`;
+    addWidgetMessage("assistant", `Documento cargado: ${file.name}. Puedes preguntarme por riesgos, resumen o pasos recomendados.`);
+    return;
+  }
+
+  if (binaryExtensions.includes(extension)) {
+    const base64 = await readFileAsBase64(file);
+    widgetDocumentContext = {
+      name: file.name,
+      type: file.type || extension,
+      text: "",
+      fileBase64: base64,
+      extension,
+      readable: false
+    };
+    agentWidgetFileStatus.textContent = `${file.name} recibido. Intentare extraer texto al consultar.`;
+    addWidgetMessage("assistant", `Recibi ${file.name}. Escribe que quieres revisar y detectare el area legal automaticamente.`);
+    return;
+  }
+
+  widgetDocumentContext = null;
+  agentWidgetFileStatus.textContent = "Formato no soportado. Usa PDF, DOCX o texto plano.";
+}
+
+agentWidgetFile.addEventListener("change", async () => {
+  const file = agentWidgetFile.files?.[0];
+  if (!file) {
+    return;
+  }
+  await loadWidgetDocument(file);
+});
+
+let isDraggingAgent = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let widgetStartRight = 0;
+let widgetStartBottom = 0;
+
+document.querySelector(".agent-widget-header").addEventListener("pointerdown", (event) => {
+  if (event.target.closest("button")) {
+    return;
+  }
+  isDraggingAgent = true;
+  dragStartX = event.clientX;
+  dragStartY = event.clientY;
+  const rect = agentWidget.getBoundingClientRect();
+  widgetStartRight = window.innerWidth - rect.right;
+  widgetStartBottom = window.innerHeight - rect.bottom;
+  agentWidget.setPointerCapture(event.pointerId);
+});
+
+document.querySelector(".agent-widget-header").addEventListener("pointermove", (event) => {
+  if (!isDraggingAgent) {
+    return;
+  }
+  const nextRight = Math.max(8, widgetStartRight - (event.clientX - dragStartX));
+  const nextBottom = Math.max(8, widgetStartBottom - (event.clientY - dragStartY));
+  agentWidget.style.right = `${nextRight}px`;
+  agentWidget.style.bottom = `${nextBottom}px`;
+});
+
+document.querySelector(".agent-widget-header").addEventListener("pointerup", (event) => {
+  isDraggingAgent = false;
+  agentWidget.releasePointerCapture(event.pointerId);
+});
+
+floatingAgentToggle.addEventListener("click", () => {
+  if (agentWidget.classList.contains("is-open")) {
+    minimizeAgentWidget();
+  } else {
+    openAgentWidget();
+  }
+});
+
+floatingAgentToggle.addEventListener("dblclick", minimizeAgentWidget);
+agentWidgetMinimize.addEventListener("click", minimizeAgentWidget);
+agentWidgetSection.addEventListener("click", () => {
+  minimizeAgentWidget();
+  document.querySelector("#asistente").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+agentWidgetForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const message = agentWidgetInput.value.trim();
+  if (!message) {
+    agentWidgetInput.focus();
+    return;
+  }
+  agentWidgetInput.value = "";
+  sendWidgetMessage(message);
+});
+
+agentWidgetInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    agentWidgetForm.requestSubmit();
+  }
+});
 
 renderQuestions(serviceSelect.value);
