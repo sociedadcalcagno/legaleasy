@@ -1,5 +1,6 @@
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const { buildKnowledgeContext, detectEscalation, getLegalArea } = require("./legal-knowledge");
 
 const serviceLabels = {
   "consultas-legales": "Consultas legales",
@@ -24,69 +25,6 @@ const servicePrompts = {
   "proteccion-marca": "protección de marca, nombre comercial, logo, dominio y activos intangibles",
   "cumplimiento-prevencion": "cumplimiento, prevención legal, procesos, políticas internas y documentación"
 };
-
-const legalManuals = [
-  {
-    id: "consultas-legales",
-    title: "Consultas legales",
-    summary: "Primera orientación para ordenar hechos, documentos, riesgos y próximos pasos.",
-    sections: [
-      "Identificar qué ocurrió, desde cuándo, quiénes participan y qué resultado busca la persona.",
-      "Preguntar si existe contrato, carta, correo, notificación, deuda, plazo o documento formal.",
-      "Si hay plazo, firma próxima, demanda, despido o monto relevante, recomendar derivación humana o agenda."
-    ]
-  },
-  {
-    id: "revision-contratos",
-    title: "Revisión de contratos",
-    summary: "Revisión inicial de objeto, precio, plazo, multas, renovación, término anticipado y obligaciones.",
-    sections: [
-      "Antes de firmar: revisar partes, objeto, precio, plazo, forma de pago, multas, garantías y causales de término.",
-      "Si el usuario menciona multa o penalidad, pedir cláusula exacta, monto, evento que activa la multa y posibilidad de subsanar.",
-      "Si el contrato está adjunto, resumir primero lo visible, luego riesgos y preguntas de seguimiento."
-    ]
-  },
-  {
-    id: "laboral",
-    title: "Laboral",
-    summary: "Orientación inicial para trabajadores y empleadores sobre contrato, despido, finiquito, sueldo y jornada.",
-    sections: [
-      "Distinguir si la persona es trabajador o empleador.",
-      "Para despido o finiquito: pedir carta, causal, fecha, contrato, liquidaciones, vacaciones e indemnizaciones.",
-      "Si debe firmar pronto, recomendar revisión humana antes de firmar."
-    ]
-  },
-  {
-    id: "reclamaciones-defensa",
-    title: "Reclamaciones y defensa",
-    summary: "Ordenar reclamos, notificaciones, deudas, defensas y plazos de respuesta.",
-    sections: [
-      "Identificar quién reclama, qué exige, cómo notificó y qué plazo dio.",
-      "Ordenar pruebas: contrato, pagos, correos, mensajes, boletas, entregas y fechas.",
-      "No recomendar responder en caliente; sugerir respuesta breve, documentada y revisión humana si hay plazo formal."
-    ]
-  },
-  {
-    id: "apoyo-pymes",
-    title: "Apoyo a pymes",
-    summary: "Soporte legal práctico para clientes, proveedores, pagos, documentos y prevención.",
-    sections: [
-      "Clasificar si el problema es con cliente, proveedor, trabajador, socio o documento interno.",
-      "Ordenar condiciones de pago, entregas, responsabilidades y evidencia.",
-      "Proponer prevención: contratos simples, políticas internas, respaldo documental y agenda si hay conflicto activo."
-    ]
-  },
-  {
-    id: "proteccion-marca",
-    title: "Protección de marca y activos",
-    summary: "Cuidado de nombre comercial, logo, dominio, redes y activos intangibles.",
-    sections: [
-      "Preguntar si la marca ya está en uso o antes de lanzamiento.",
-      "Reunir nombre exacto, logo, rubro, dominio, redes y evidencia de uso.",
-      "Si hay conflicto o copia, derivar para revisión humana."
-    ]
-  }
-];
 
 exports.handler = async (event) => {
   if (event.httpMethod === "GET") {
@@ -128,7 +66,8 @@ exports.handler = async (event) => {
       });
     }
 
-    const context = buildLegalContext(service, message);
+    const context = buildKnowledgeContext(service, message);
+    const shouldEscalate = detectEscalation(`${message} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
     const promptText = buildPromptText(service, message, documentContext, history, context);
     const geminiAnswer = normalizeAssistantAnswer(await tryGemini(promptText));
     if (geminiAnswer) {
@@ -141,7 +80,7 @@ exports.handler = async (event) => {
     }
 
     return json(200, {
-      answer: buildLocalFallback(service, message, documentContext, history),
+      answer: buildLocalFallback(service, message, documentContext, history, shouldEscalate),
       service,
       provider: "local-guide",
       fallback: true
@@ -149,7 +88,7 @@ exports.handler = async (event) => {
   } catch (error) {
     console.error("LegalEasy chat error", error);
     return json(200, {
-      answer: buildLocalFallback("consultas-legales", "", null, []),
+      answer: buildLocalFallback("consultas-legales", "", null, [], false),
       service: "consultas-legales",
       provider: "local-guide",
       fallback: true
@@ -283,7 +222,9 @@ function buildPromptText(service, message, documentContext, history, context) {
     `Área detectada: ${serviceLabels[service]} (${servicePrompts[service]}).`,
     "No inventes leyes, artículos ni plazos exactos. No des sentencia definitiva.",
     "Haz máximo 1 pregunta concreta cuando falte información.",
-    "Si hay documento formal, firma próxima, despido, demanda, deuda, plazo o monto relevante, recomienda derivar a asistente humano o agendar cita.",
+    detectEscalation(`${message} ${documentContext?.name || ""} ${documentContext?.text || ""}`)
+      ? "Atención: esta consulta contiene señales de riesgo o escalamiento. Recomienda revisión profesional antes de una actuación formal."
+      : "Si hay documento formal, firma próxima, despido, demanda, deuda, plazo o monto relevante, recomienda derivar a asistente humano o agendar cita.",
     "Entrega exactamente 4 líneas completas, una por cada etiqueta: Entendí esto:, Punto clave:, Siguiente paso:, Pregunta:. Máximo 1200 caracteres total.",
     "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
     "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
@@ -293,31 +234,6 @@ function buildPromptText(service, message, documentContext, history, context) {
     `Consulta del usuario: ${message}`,
     "Respuesta:"
   ].filter(Boolean).join("\n\n");
-}
-
-function buildLegalContext(service, question) {
-  const selected = new Set([service, ...searchManuals(question).map((item) => item.id)]);
-  return legalManuals
-    .filter((manual) => selected.has(manual.id))
-    .map((manual) => [
-      `# ${manual.title}`,
-      manual.summary,
-      ...manual.sections.map((section) => `- ${section}`)
-    ].join("\n"))
-    .join("\n\n");
-}
-
-function searchManuals(question) {
-  const tokens = tokenize(question);
-  const hits = [];
-  for (const manual of legalManuals) {
-    const haystack = `${manual.title}\n${manual.summary}\n${manual.sections.join("\n")}`.toLowerCase();
-    const score = tokens.reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0);
-    if (score > 0) {
-      hits.push({ id: manual.id, score });
-    }
-  }
-  return hits.sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
 function tokenize(value) {
@@ -332,8 +248,9 @@ function tokenize(value) {
     .slice(0, 16);
 }
 
-function buildLocalFallback(service, message, documentContext, history = []) {
+function buildLocalFallback(service, message, documentContext, history = [], shouldEscalate = false) {
   const label = serviceLabels[service] || serviceLabels[detectService(message, documentContext)] || "Consulta legal";
+  const area = getLegalArea(service);
   const hasDocument = Boolean(documentContext?.name);
   const combined = `${history.map((item) => item?.content || "").join(" ")} ${message || ""}`.toLowerCase();
   const isVague = tokenize(message).length <= 2 && !hasDocument;
@@ -364,7 +281,7 @@ function buildLocalFallback(service, message, documentContext, history = []) {
       hasDocument
         ? `Punto clave: hay un documento asociado (${documentContext.name}); conviene mirar objeto, precio, plazo, multas, renovación y término anticipado.`
         : "Punto clave: sin ver la cláusula exacta solo puedo orientar; la multa o el plazo dependen de cómo está redactado el contrato.",
-      hasUrgency
+      shouldEscalate || hasUrgency
         ? "Siguiente paso: si debes firmar pronto o hay multa, deriva el caso para revisión humana antes de aceptar."
         : "Siguiente paso: copia la cláusula que te preocupa o sube el contrato para ordenar riesgos.",
       "Pregunta: ¿la preocupación principal es multa, plazo, pago, renovación o término anticipado?"
@@ -422,11 +339,11 @@ function buildLocalFallback(service, message, documentContext, history = []) {
     `Entendí que tu consulta se relaciona con ${label}.`,
     hasDocument
       ? `Veo que hay un documento asociado (${documentContext.name}). Para revisarlo bien necesito que me indiques qué te preocupa: plazo, firma, multa, pago, despido, reclamo u otra cláusula.`
-      : "Para orientarte mejor necesito ubicar si hay contrato, carta, correo, notificación, deuda, plazo o documento formal.",
-    hasUrgency
-      ? "Punto clave: como mencionas algo sensible o urgente, conviene priorizar revisión humana antes de actuar."
-      : "Punto clave: mientras más específico sea el hecho y el documento, mejor se puede orientar el siguiente paso.",
-    "Siguiente paso: resume qué ocurrió, desde cuándo, qué documento existe y qué resultado buscas.",
+      : `Para orientarte mejor necesito ubicar antecedentes clave: ${area.review?.slice(0, 5).join(", ") || "hechos, fechas y documentos"}.`,
+    shouldEscalate || hasUrgency
+      ? "Punto clave: hay señales de riesgo o plazo; conviene revisión profesional antes de realizar una actuación formal."
+      : area.rule || "Punto clave: mientras más específico sea el hecho y el documento, mejor se puede orientar el siguiente paso.",
+    "Siguiente paso: resume qué ocurrió, desde cuándo, qué documento existe y qué resultado buscas. Si hay documento formal, usa Derivar a asistente.",
     "Pregunta para seguir: ¿hay un plazo concreto o documento que debas firmar/responder?"
   ].join("\n");
 }
