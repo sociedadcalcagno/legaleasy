@@ -293,6 +293,78 @@ function removeTypingState() {
   }
 }
 
+async function readJsonSafe(response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function buildClientFallbackAnswer(serviceKey, message, documentData = null) {
+  const service = serviceData[serviceKey] || serviceData[detectClientService(message, documentData)] || serviceData["consultas-legales"];
+  const documentLine = documentData?.name
+    ? `Documento recibido: ${documentData.name}. Si quieres una revisión humana, usa el botón "Derivar a asistente" para que el equipo pueda revisar el caso.`
+    : "Si tienes un documento, puedes subirlo o derivar el caso para revisión humana.";
+
+  return [
+    `Área detectada: ${service.title}`,
+    "Puedo darte una orientación inicial mientras conectamos la atención humana.",
+    documentLine,
+    "Pasos recomendados:",
+    "- Resume qué ocurrió y desde cuándo.",
+    "- Identifica si hay contrato, carta, correo, notificación o plazo urgente.",
+    "- No firmes ni respondas documentos importantes sin revisar el contexto completo.",
+    "- Si necesitas atención real del equipo, presiona \"Derivar a asistente\" o \"Agendar cita\".",
+    "Importante: esta respuesta es orientativa y no reemplaza asesoría legal personalizada."
+  ].join("\n");
+}
+
+function detectClientService(message, documentData = null) {
+  const text = `${message || ""} ${documentData?.name || ""} ${documentData?.text || ""}`.toLowerCase();
+  const checks = [
+    ["revision-contratos", ["contrato", "clausula", "firmar", "arriendo", "multa", "penalidad"]],
+    ["laboral", ["despido", "finiquito", "trabajo", "sueldo", "empleador", "trabajador"]],
+    ["reclamaciones-defensa", ["reclamo", "demanda", "notificacion", "deuda", "plazo", "defensa"]],
+    ["constitucion-empresas", ["empresa", "sociedad", "constituir", "emprendimiento"]],
+    ["proteccion-marca", ["marca", "logo", "dominio", "nombre comercial"]],
+    ["cumplimiento-prevencion", ["cumplimiento", "prevencion", "riesgo", "politica"]],
+    ["apoyo-pymes", ["pyme", "negocio", "cliente", "proveedor"]],
+    ["documentos-escritos", ["carta", "solicitud", "escrito", "poder", "documento"]]
+  ];
+
+  let bestService = "consultas-legales";
+  let bestScore = 0;
+  for (const [service, keywords] of checks) {
+    const score = keywords.reduce((total, keyword) => total + (text.includes(keyword) ? 1 : 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestService = service;
+    }
+  }
+  return bestService;
+}
+
+function storePendingLead(payload) {
+  const pendingLeads = JSON.parse(localStorage.getItem("legaleasyPendingLeads") || "[]");
+  pendingLeads.push({ ...payload, createdAt: new Date().toISOString() });
+  localStorage.setItem("legaleasyPendingLeads", JSON.stringify(pendingLeads.slice(-20)));
+}
+
+function openLeadWhatsApp(payload) {
+  const text = [
+    "Hola LegalEasy, quiero derivar este caso a un asistente.",
+    `Nombre: ${payload.name}`,
+    payload.phone ? `WhatsApp: ${payload.phone}` : "",
+    payload.email ? `Email: ${payload.email}` : "",
+    payload.wantsAppointment ? "Quiere agendar cita: si" : "",
+    payload.appointmentPreference ? `Horario preferido: ${payload.appointmentPreference}` : "",
+    `Caso: ${payload.message}`
+  ].filter(Boolean).join("\n");
+
+  window.open(`https://wa.me/56933553024?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+}
+
 async function sendMessage() {
   const message = messageInput.value.trim();
   if (!message) {
@@ -328,11 +400,14 @@ async function sendMessage() {
       })
     });
 
-    const data = await response.json();
+    const data = await readJsonSafe(response);
     removeTypingState();
 
     if (!response.ok) {
-      addChatMessage("assistant", data.error || "No pude responder en este momento.");
+      const answer = buildClientFallbackAnswer(service, message, documentContext);
+      addChatMessage("assistant", answer);
+      setAssistantStatus("Orientación local");
+      conversationHistory.push({ role: "assistant", content: answer, service });
       return;
     }
 
@@ -341,7 +416,10 @@ async function sendMessage() {
     conversationHistory.push({ role: "assistant", content: data.answer, service });
   } catch {
     removeTypingState();
-    addChatMessage("assistant", "No pude conectarme con el asistente ahora mismo. Revisa si el servidor esta corriendo y si la API key esta configurada.");
+    const answer = buildClientFallbackAnswer(service, message, documentContext);
+    addChatMessage("assistant", answer);
+    setAssistantStatus("Orientación local");
+    conversationHistory.push({ role: "assistant", content: answer, service });
   } finally {
     sendButton.disabled = false;
     useQuestionButton.disabled = false;
@@ -561,24 +639,27 @@ async function submitLead(event) {
   leadStatus.textContent = "Enviando caso...";
 
   try {
+    const payload = {
+      ...leadContext,
+      name,
+      email,
+      phone,
+      message,
+      wantsAppointment: leadWantsAppointment.checked,
+      appointmentPreference: leadAppointmentPreference.value.trim()
+    };
     const response = await fetch("/api/leads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...leadContext,
-        name,
-        email,
-        phone,
-        message,
-        wantsAppointment: leadWantsAppointment.checked,
-        appointmentPreference: leadAppointmentPreference.value.trim()
-      })
+      body: JSON.stringify(payload)
     });
-    const data = await response.json();
+    const data = await readJsonSafe(response);
 
     if (!response.ok) {
-      leadStatus.textContent = data.error || "No se pudo enviar el caso.";
-      leadSubmitButton.disabled = false;
+      storePendingLead(payload);
+      openLeadWhatsApp(payload);
+      leadStatus.textContent = "No hay API activa en este dominio. Guardé el caso en este navegador y abrí WhatsApp para enviarlo al equipo.";
+      setTimeout(closeLeadModal, 2600);
       return;
     }
 
@@ -589,8 +670,19 @@ async function submitLead(event) {
     leadForm.reset();
     setTimeout(closeLeadModal, 1800);
   } catch {
-    leadStatus.textContent = "No se pudo conectar con el servidor. Intenta nuevamente.";
-    leadSubmitButton.disabled = false;
+    const payload = {
+      ...leadContext,
+      name,
+      email,
+      phone,
+      message,
+      wantsAppointment: leadWantsAppointment.checked,
+      appointmentPreference: leadAppointmentPreference.value.trim()
+    };
+    storePendingLead(payload);
+    openLeadWhatsApp(payload);
+    leadStatus.textContent = "No hay API activa en este dominio. Guardé el caso en este navegador y abrí WhatsApp para enviarlo al equipo.";
+    setTimeout(closeLeadModal, 2600);
   }
 }
 
@@ -612,14 +704,16 @@ async function sendWidgetMessage(message) {
         history: requestHistory
       })
     });
-    const data = await response.json();
+    const data = await readJsonSafe(response);
     pendingMessage.remove();
-    const answer = response.ok ? data.answer : data.error || "No pude responder en este momento.";
+    const answer = response.ok ? data.answer : buildClientFallbackAnswer("auto", message, widgetDocumentContext);
     addWidgetMessage("assistant", answer);
     widgetHistory.push({ role: "assistant", content: answer });
   } catch {
     pendingMessage.remove();
-    addWidgetMessage("assistant", "No pude conectar con el agente en este momento. Intenta nuevamente en unos segundos.");
+    const answer = buildClientFallbackAnswer("auto", message, widgetDocumentContext);
+    addWidgetMessage("assistant", answer);
+    widgetHistory.push({ role: "assistant", content: answer });
   }
 }
 
