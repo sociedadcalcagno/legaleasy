@@ -141,7 +141,7 @@ exports.handler = async (event) => {
     }
 
     return json(200, {
-      answer: buildLocalFallback(service, message, documentContext, context),
+      answer: buildLocalFallback(service, message, documentContext, history),
       service,
       provider: "local-guide",
       fallback: true
@@ -149,7 +149,7 @@ exports.handler = async (event) => {
   } catch (error) {
     console.error("LegalEasy chat error", error);
     return json(200, {
-      answer: buildLocalFallback("consultas-legales", "", null, buildLegalContext("consultas-legales", "")),
+      answer: buildLocalFallback("consultas-legales", "", null, []),
       service: "consultas-legales",
       provider: "local-guide",
       fallback: true
@@ -243,7 +243,7 @@ function buildMessages(service, message, documentContext, history, context = "")
         "No des sentencia definitiva, no inventes leyes, artículos ni plazos exactos si el usuario no los entrega.",
         "Haz máximo 1 pregunta concreta cuando falte información. Evita respuestas largas y robóticas.",
         "Si detectas urgencia, documento formal, firma próxima, despido, demanda, deuda o plazo, recomienda derivar a asistente humano o agendar cita.",
-        "Responde en máximo 1200 caracteres con este formato exacto: Entendí esto / Punto clave / Siguiente paso / Pregunta. Usa frases breves.",
+        "Entrega exactamente 4 líneas completas, una por cada etiqueta: Entendí esto:, Punto clave:, Siguiente paso:, Pregunta:. Máximo 1200 caracteres total.",
         "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
         "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
         "Usa español chileno neutro, cercano y claro.",
@@ -284,7 +284,7 @@ function buildPromptText(service, message, documentContext, history, context) {
     "No inventes leyes, artículos ni plazos exactos. No des sentencia definitiva.",
     "Haz máximo 1 pregunta concreta cuando falte información.",
     "Si hay documento formal, firma próxima, despido, demanda, deuda, plazo o monto relevante, recomienda derivar a asistente humano o agendar cita.",
-    "Responde en máximo 1200 caracteres con este formato exacto: Entendí esto / Punto clave / Siguiente paso / Pregunta. Usa frases breves.",
+    "Entrega exactamente 4 líneas completas, una por cada etiqueta: Entendí esto:, Punto clave:, Siguiente paso:, Pregunta:. Máximo 1200 caracteres total.",
     "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
     "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
     `Contexto LegalEasy:\n${context}`,
@@ -332,19 +332,101 @@ function tokenize(value) {
     .slice(0, 16);
 }
 
-function buildLocalFallback(service, message, documentContext, context) {
+function buildLocalFallback(service, message, documentContext, history = []) {
   const label = serviceLabels[service] || serviceLabels[detectService(message, documentContext)] || "Consulta legal";
   const hasDocument = Boolean(documentContext?.name);
+  const combined = `${history.map((item) => item?.content || "").join(" ")} ${message || ""}`.toLowerCase();
+  const isVague = tokenize(message).length <= 2 && !hasDocument;
+  const hasUrgency = /plazo|mañana|manana|hoy|urgente|firmar|notific|demanda|carta|despido|finiquito|multa|deuda/.test(combined);
+  const wantsHuman = /abogado|persona|humano|asesor|asistente|agendar|cita|llamada|contact/.test(combined);
+
+  if (wantsHuman) {
+    return [
+      "Entendí esto: quieres que una persona revise o tome el caso.",
+      "Punto clave: para derivarlo bien necesito dejar el caso ordenado, no solo una consulta suelta.",
+      "Siguiente paso: presiona Derivar a asistente o Agendar cita y agrega nombre, WhatsApp/email y un resumen breve.",
+      "Pregunta: ¿hay un documento o plazo que debamos priorizar?"
+    ].join("\n");
+  }
+
+  if (isVague) {
+    return [
+      "Entendí esto: quieres hacer una consulta, pero todavía falta el tema concreto.",
+      "Punto clave: puedo ayudarte mejor si clasificamos el caso primero.",
+      "Siguiente paso: dime si es contrato, laboral, reclamo/deuda, empresa, marca o documento.",
+      "Pregunta: ¿qué ocurrió y qué necesitas lograr?"
+    ].join("\n");
+  }
+
+  if (service === "revision-contratos") {
+    return [
+      "Entendí esto: la consulta apunta a revisar un contrato o una cláusula antes de avanzar.",
+      hasDocument
+        ? `Punto clave: hay un documento asociado (${documentContext.name}); conviene mirar objeto, precio, plazo, multas, renovación y término anticipado.`
+        : "Punto clave: sin ver la cláusula exacta solo puedo orientar; la multa o el plazo dependen de cómo está redactado el contrato.",
+      hasUrgency
+        ? "Siguiente paso: si debes firmar pronto o hay multa, deriva el caso para revisión humana antes de aceptar."
+        : "Siguiente paso: copia la cláusula que te preocupa o sube el contrato para ordenar riesgos.",
+      "Pregunta: ¿la preocupación principal es multa, plazo, pago, renovación o término anticipado?"
+    ].join("\n");
+  }
+
+  if (service === "laboral") {
+    return [
+      "Entendí esto: la consulta parece laboral.",
+      "Punto clave: cambia mucho si eres trabajador o empleador, y si ya existe carta, finiquito, contrato o aviso formal.",
+      hasUrgency
+        ? "Siguiente paso: no firmes apurado; ordena carta, contrato, liquidaciones, fechas y mensajes antes de responder."
+        : "Siguiente paso: identifica el documento principal y la fecha del hecho.",
+      "Pregunta: ¿eres trabajador o empleador, y qué documento tienes a mano?"
+    ].join("\n");
+  }
+
+  if (service === "reclamaciones-defensa") {
+    return [
+      "Entendí esto: hay un reclamo, deuda, notificación o posible defensa que ordenar.",
+      "Punto clave: lo primero es saber quién reclama, qué exige, cómo notificó y si dio plazo.",
+      "Siguiente paso: reúne contrato, pagos, correos, mensajes, boletas y fecha de recepción.",
+      "Pregunta: ¿recibiste una notificación formal o todavía es una conversación informal?"
+    ].join("\n");
+  }
+
+  if (service === "constitucion-empresas") {
+    return [
+      "Entendí esto: quieres ordenar un inicio o estructura de empresa.",
+      "Punto clave: antes de crear documentos hay que definir socios, aportes, administración, giro y quién firma.",
+      "Siguiente paso: separa qué decisiones ya están tomadas y cuáles faltan.",
+      "Pregunta: ¿la empresa será solo tuya o tendrá socios?"
+    ].join("\n");
+  }
+
+  if (service === "proteccion-marca") {
+    return [
+      "Entendí esto: quieres proteger marca, nombre, logo, dominio o identidad comercial.",
+      "Punto clave: importa saber si la marca ya está en uso público o si todavía está antes del lanzamiento.",
+      "Siguiente paso: reúne nombre exacto, rubro, logo, dominio, redes y evidencia de uso.",
+      "Pregunta: ¿ya estás usando la marca públicamente?"
+    ].join("\n");
+  }
+
+  if (service === "apoyo-pymes") {
+    return [
+      "Entendí esto: la consulta parece relacionada con un negocio o pyme.",
+      "Punto clave: hay que ubicar si el problema es con cliente, proveedor, trabajador, socio, pago o documento.",
+      "Siguiente paso: ordena fechas, acuerdos, pagos, mensajes y qué resultado buscas: cobrar, responder, negociar o prevenir.",
+      "Pregunta: ¿el problema es con cliente, proveedor, trabajador, socio o contrato?"
+    ].join("\n");
+  }
+
   return [
     `Entendí que tu consulta se relaciona con ${label}.`,
     hasDocument
       ? `Veo que hay un documento asociado (${documentContext.name}). Para revisarlo bien necesito que me indiques qué te preocupa: plazo, firma, multa, pago, despido, reclamo u otra cláusula.`
       : "Para orientarte mejor necesito ubicar si hay contrato, carta, correo, notificación, deuda, plazo o documento formal.",
-    "Punto clave: si existe un plazo, una firma cercana, una notificación formal o un monto relevante, conviene derivar el caso a revisión humana antes de actuar.",
-    "Próximos pasos:",
-    "1. Resume qué ocurrió y desde cuándo.",
-    "2. Indica qué documento existe y qué resultado buscas.",
-    "3. Si necesitas respuesta formal o revisión de documento, usa Derivar a asistente o Agendar cita.",
+    hasUrgency
+      ? "Punto clave: como mencionas algo sensible o urgente, conviene priorizar revisión humana antes de actuar."
+      : "Punto clave: mientras más específico sea el hecho y el documento, mejor se puede orientar el siguiente paso.",
+    "Siguiente paso: resume qué ocurrió, desde cuándo, qué documento existe y qué resultado buscas.",
     "Pregunta para seguir: ¿hay un plazo concreto o documento que debas firmar/responder?"
   ].join("\n");
 }
@@ -423,6 +505,10 @@ function extractGeminiText(data) {
 function normalizeAssistantAnswer(answer) {
   const text = String(answer || "").replace(/\s+\n/g, "\n").trim();
   if (!text) {
+    return null;
+  }
+
+  if (text.length < 120 || /\b(con|de|para|por|y|o|que|si)$/i.test(text)) {
     return null;
   }
 
