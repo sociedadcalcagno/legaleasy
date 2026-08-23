@@ -80,7 +80,10 @@ exports.handler = async (event) => {
         message: data?.error?.message || "Sin detalle del proveedor",
         model: OPENAI_MODEL
       });
-      return json(502, { error: "No pude conectar con el modelo de IA" });
+      return json(502, {
+        error: "No pude conectar con el modelo de IA",
+        reason: getSafeProviderReason(aiResponse.status, data?.error?.type)
+      });
     }
 
     const answer = extractResponseText(data);
@@ -198,6 +201,22 @@ function extractResponseText(data) {
 
 function cleanText(value, maxLength) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maxLength) : "";
+}
+
+function getSafeProviderReason(status, type) {
+  if (status === 401) {
+    return "openai_auth";
+  }
+
+  if (status === 402 || status === 429 || type === "insufficient_quota") {
+    return "openai_quota_or_billing";
+  }
+
+  if (status === 400) {
+    return "openai_request_or_model";
+  }
+
+  return "openai_provider_error";
 }
 
 function json(statusCode, payload) {
