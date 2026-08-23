@@ -130,12 +130,12 @@ exports.handler = async (event) => {
 
     const context = buildLegalContext(service, message);
     const promptText = buildPromptText(service, message, documentContext, history, context);
-    const geminiAnswer = await tryGemini(promptText);
+    const geminiAnswer = normalizeAssistantAnswer(await tryGemini(promptText));
     if (geminiAnswer) {
       return json(200, { answer: geminiAnswer, service, provider: "gemini-netlify" });
     }
 
-    const openAiAnswer = await tryOpenAi(service, message, documentContext, history, context);
+    const openAiAnswer = normalizeAssistantAnswer(await tryOpenAi(service, message, documentContext, history, context));
     if (openAiAnswer) {
       return json(200, { answer: openAiAnswer, service, provider: "openai-netlify" });
     }
@@ -172,7 +172,7 @@ async function tryGemini(promptText) {
         contents: [{ role: "user", parts: [{ text: promptText }] }],
         generationConfig: {
           temperature: 0.35,
-          maxOutputTokens: 900
+          maxOutputTokens: 500
         }
       })
     });
@@ -205,7 +205,7 @@ async function tryOpenAi(service, message, documentContext, history, context) {
         model: OPENAI_MODEL,
         messages: buildMessages(service, message, documentContext, history, context),
         temperature: 0.35,
-        max_tokens: 900
+        max_tokens: 500
       })
     });
     const data = await response.json();
@@ -238,12 +238,14 @@ function buildMessages(service, message, documentContext, history, context = "")
       role: "system",
       content: [
         "Eres el Agente LegalEasy, un asistente legal conversacional chileno para atención inicial.",
-        "Actúa como un asistente humano competente: escucha, ordena, pregunta y propone el siguiente paso.",
+        "Actúa como un asistente humano competente, pero mantente acotado: no divagues, no hagas clases largas y no salgas del problema legal planteado.",
         `Área de trabajo: ${serviceLabels[service]} (${servicePrompts[service]}).`,
         "No des sentencia definitiva, no inventes leyes, artículos ni plazos exactos si el usuario no los entrega.",
-        "Haz máximo 1 a 3 preguntas concretas cuando falte información. Evita respuestas largas y robóticas.",
+        "Haz máximo 1 pregunta concreta cuando falte información. Evita respuestas largas y robóticas.",
         "Si detectas urgencia, documento formal, firma próxima, despido, demanda, deuda o plazo, recomienda derivar a asistente humano o agendar cita.",
-        "Estructura la respuesta con: entendí esto, punto clave, próximos pasos y una pregunta de seguimiento.",
+        "Responde en máximo 1200 caracteres con este formato exacto: Entendí esto / Punto clave / Siguiente paso / Pregunta. Usa frases breves.",
+        "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
+        "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
         "Usa español chileno neutro, cercano y claro.",
         context ? `Contexto LegalEasy:
 ${context}` : "",
@@ -277,12 +279,14 @@ function buildPromptText(service, message, documentContext, history, context) {
 
   return [
     "Eres el Agente LegalEasy, asistente legal conversacional chileno para atención inicial.",
-    "Actúa como un asistente humano competente: escucha, ordena, pregunta y propone el siguiente paso.",
+    "Actúa como un asistente humano competente, pero mantente acotado: no divagues, no hagas clases largas y no salgas del problema legal planteado.",
     `Área detectada: ${serviceLabels[service]} (${servicePrompts[service]}).`,
     "No inventes leyes, artículos ni plazos exactos. No des sentencia definitiva.",
-    "Haz máximo 1 a 3 preguntas concretas cuando falte información.",
+    "Haz máximo 1 pregunta concreta cuando falte información.",
     "Si hay documento formal, firma próxima, despido, demanda, deuda, plazo o monto relevante, recomienda derivar a asistente humano o agendar cita.",
-    "Responde con: entendí esto, punto clave, próximos pasos y una pregunta de seguimiento.",
+    "Responde en máximo 1200 caracteres con este formato exacto: Entendí esto / Punto clave / Siguiente paso / Pregunta. Usa frases breves.",
+    "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
+    "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
     `Contexto LegalEasy:\n${context}`,
     historyText ? `Conversación previa:\n${historyText}` : "",
     documentText,
@@ -414,6 +418,19 @@ function extractResponseText(data) {
 function extractGeminiText(data) {
   const text = data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || "").join("") || "";
   return String(text || "").trim() || null;
+}
+
+function normalizeAssistantAnswer(answer) {
+  const text = String(answer || "").replace(/\s+\n/g, "\n").trim();
+  if (!text) {
+    return null;
+  }
+
+  if (text.length <= 1400) {
+    return text;
+  }
+
+  return `${text.slice(0, 1350).trim()}\n\nPara seguir sin irnos por las ramas: ¿cuál es el documento, plazo o problema concreto que necesitas revisar?`;
 }
 
 function cleanText(value, maxLength) {
