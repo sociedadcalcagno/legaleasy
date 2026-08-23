@@ -25,6 +25,16 @@ const servicePrompts = {
 };
 
 exports.handler = async (event) => {
+  if (event.httpMethod === "GET") {
+    return json(200, {
+      ok: true,
+      service: "LegalEasy chat API",
+      method: "POST",
+      model: OPENAI_MODEL,
+      configured: Boolean(process.env.OPENAI_API_KEY)
+    });
+  }
+
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Método no permitido" });
   }
@@ -48,7 +58,7 @@ exports.handler = async (event) => {
       return json(400, { error: "Servicio no válido" });
     }
 
-    const aiResponse = await fetch("https://api.openai.com/v1/responses", {
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -56,8 +66,9 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        input: buildInput(service, message, documentContext, history),
-        temperature: 0.35
+        messages: buildMessages(service, message, documentContext, history),
+        temperature: 0.35,
+        max_tokens: 900
       })
     });
 
@@ -83,7 +94,7 @@ exports.handler = async (event) => {
   }
 };
 
-function buildInput(service, message, documentContext, history) {
+function buildMessages(service, message, documentContext, history) {
   const documentText = documentContext?.text
     ? `Documento adjunto (${documentContext.name}): ${documentContext.text}`
     : documentContext?.name
@@ -165,6 +176,11 @@ function detectService(message, documentContext, history = []) {
 }
 
 function extractResponseText(data) {
+  const chatText = data?.choices?.[0]?.message?.content;
+  if (typeof chatText === "string" && chatText.trim()) {
+    return chatText.trim();
+  }
+
   if (typeof data.output_text === "string" && data.output_text.trim()) {
     return data.output_text.trim();
   }

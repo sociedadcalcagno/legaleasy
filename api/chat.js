@@ -25,6 +25,17 @@ const servicePrompts = {
 };
 
 module.exports = async function handler(request, response) {
+  if (request.method === "GET") {
+    sendJson(response, 200, {
+      ok: true,
+      service: "LegalEasy chat API",
+      method: "POST",
+      model: OPENAI_MODEL,
+      configured: Boolean(process.env.OPENAI_API_KEY)
+    });
+    return;
+  }
+
   if (request.method !== "POST") {
     sendJson(response, 405, { error: "Método no permitido" });
     return;
@@ -52,8 +63,8 @@ module.exports = async function handler(request, response) {
       return;
     }
 
-    const input = buildInput(service, message, documentContext, history);
-    const aiResponse = await fetch("https://api.openai.com/v1/responses", {
+    const messages = buildMessages(service, message, documentContext, history);
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -61,8 +72,9 @@ module.exports = async function handler(request, response) {
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        input,
-        temperature: 0.35
+        messages,
+        temperature: 0.35,
+        max_tokens: 900
       })
     });
 
@@ -90,7 +102,7 @@ module.exports = async function handler(request, response) {
   }
 };
 
-function buildInput(service, message, documentContext, history) {
+function buildMessages(service, message, documentContext, history) {
   const documentText = documentContext?.text
     ? `Documento adjunto (${documentContext.name}): ${documentContext.text}`
     : documentContext?.name
@@ -182,6 +194,11 @@ function detectService(message, documentContext, history = []) {
 }
 
 function extractResponseText(data) {
+  const chatText = data?.choices?.[0]?.message?.content;
+  if (typeof chatText === "string" && chatText.trim()) {
+    return chatText.trim();
+  }
+
   if (typeof data.output_text === "string" && data.output_text.trim()) {
     return data.output_text.trim();
   }
