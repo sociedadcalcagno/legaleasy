@@ -1,4 +1,5 @@
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const serviceLabels = {
   "consultas-legales": "Consultas legales",
@@ -24,23 +25,84 @@ const servicePrompts = {
   "cumplimiento-prevencion": "cumplimiento, prevención legal, procesos, políticas internas y documentación"
 };
 
+const legalManuals = [
+  {
+    id: "consultas-legales",
+    title: "Consultas legales",
+    summary: "Primera orientación para ordenar hechos, documentos, riesgos y próximos pasos.",
+    sections: [
+      "Identificar qué ocurrió, desde cuándo, quiénes participan y qué resultado busca la persona.",
+      "Preguntar si existe contrato, carta, correo, notificación, deuda, plazo o documento formal.",
+      "Si hay plazo, firma próxima, demanda, despido o monto relevante, recomendar derivación humana o agenda."
+    ]
+  },
+  {
+    id: "revision-contratos",
+    title: "Revisión de contratos",
+    summary: "Revisión inicial de objeto, precio, plazo, multas, renovación, término anticipado y obligaciones.",
+    sections: [
+      "Antes de firmar: revisar partes, objeto, precio, plazo, forma de pago, multas, garantías y causales de término.",
+      "Si el usuario menciona multa o penalidad, pedir cláusula exacta, monto, evento que activa la multa y posibilidad de subsanar.",
+      "Si el contrato está adjunto, resumir primero lo visible, luego riesgos y preguntas de seguimiento."
+    ]
+  },
+  {
+    id: "laboral",
+    title: "Laboral",
+    summary: "Orientación inicial para trabajadores y empleadores sobre contrato, despido, finiquito, sueldo y jornada.",
+    sections: [
+      "Distinguir si la persona es trabajador o empleador.",
+      "Para despido o finiquito: pedir carta, causal, fecha, contrato, liquidaciones, vacaciones e indemnizaciones.",
+      "Si debe firmar pronto, recomendar revisión humana antes de firmar."
+    ]
+  },
+  {
+    id: "reclamaciones-defensa",
+    title: "Reclamaciones y defensa",
+    summary: "Ordenar reclamos, notificaciones, deudas, defensas y plazos de respuesta.",
+    sections: [
+      "Identificar quién reclama, qué exige, cómo notificó y qué plazo dio.",
+      "Ordenar pruebas: contrato, pagos, correos, mensajes, boletas, entregas y fechas.",
+      "No recomendar responder en caliente; sugerir respuesta breve, documentada y revisión humana si hay plazo formal."
+    ]
+  },
+  {
+    id: "apoyo-pymes",
+    title: "Apoyo a pymes",
+    summary: "Soporte legal práctico para clientes, proveedores, pagos, documentos y prevención.",
+    sections: [
+      "Clasificar si el problema es con cliente, proveedor, trabajador, socio o documento interno.",
+      "Ordenar condiciones de pago, entregas, responsabilidades y evidencia.",
+      "Proponer prevención: contratos simples, políticas internas, respaldo documental y agenda si hay conflicto activo."
+    ]
+  },
+  {
+    id: "proteccion-marca",
+    title: "Protección de marca y activos",
+    summary: "Cuidado de nombre comercial, logo, dominio, redes y activos intangibles.",
+    sections: [
+      "Preguntar si la marca ya está en uso o antes de lanzamiento.",
+      "Reunir nombre exacto, logo, rubro, dominio, redes y evidencia de uso.",
+      "Si hay conflicto o copia, derivar para revisión humana."
+    ]
+  }
+];
+
 exports.handler = async (event) => {
   if (event.httpMethod === "GET") {
     return json(200, {
       ok: true,
       service: "LegalEasy chat API",
       method: "POST",
-      model: OPENAI_MODEL,
-      configured: Boolean(process.env.OPENAI_API_KEY)
+      openaiModel: OPENAI_MODEL,
+      geminiModel: GEMINI_MODEL,
+      openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+      geminiConfigured: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)
     });
   }
 
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Método no permitido" });
-  }
-
-  if (!process.env.OPENAI_API_KEY) {
-    return json(503, { error: "OPENAI_API_KEY no configurada en Netlify" });
   }
 
   try {
@@ -58,7 +120,82 @@ exports.handler = async (event) => {
       return json(400, { error: "Servicio no válido" });
     }
 
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    if (/^(hola|buenas|buenos dias|buenos días|buenas tardes|buenas noches)\b/i.test(message)) {
+      return json(200, {
+        answer: "Hola. Cuéntame brevemente qué necesitas revisar: contrato, despido/finiquito, reclamo, deuda, empresa, marca o documento. Si tienes un plazo o documento formal, dime cuál es para priorizarlo.",
+        service,
+        provider: "local-greeting"
+      });
+    }
+
+    const context = buildLegalContext(service, message);
+    const promptText = buildPromptText(service, message, documentContext, history, context);
+    const geminiAnswer = await tryGemini(promptText);
+    if (geminiAnswer) {
+      return json(200, { answer: geminiAnswer, service, provider: "gemini-netlify" });
+    }
+
+    const openAiAnswer = await tryOpenAi(service, message, documentContext, history, context);
+    if (openAiAnswer) {
+      return json(200, { answer: openAiAnswer, service, provider: "openai-netlify" });
+    }
+
+    return json(200, {
+      answer: buildLocalFallback(service, message, documentContext, context),
+      service,
+      provider: "local-guide",
+      fallback: true
+    });
+  } catch (error) {
+    console.error("LegalEasy chat error", error);
+    return json(200, {
+      answer: buildLocalFallback("consultas-legales", "", null, buildLegalContext("consultas-legales", "")),
+      service: "consultas-legales",
+      provider: "local-guide",
+      fallback: true
+    });
+  }
+};
+
+async function tryGemini(promptText) {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: promptText }] }],
+        generationConfig: {
+          temperature: 0.35,
+          maxOutputTokens: 900
+        }
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      console.error("Gemini error", { status: response.status, message: data?.error?.message || "Sin detalle" });
+      return null;
+    }
+
+    return extractGeminiText(data);
+  } catch (error) {
+    console.error("Gemini fetch error", error);
+    return null;
+  }
+}
+
+async function tryOpenAi(service, message, documentContext, history, context) {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -66,38 +203,30 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        messages: buildMessages(service, message, documentContext, history),
+        messages: buildMessages(service, message, documentContext, history, context),
         temperature: 0.35,
         max_tokens: 900
       })
     });
-
-    const data = await aiResponse.json();
-    if (!aiResponse.ok) {
+    const data = await response.json();
+    if (!response.ok) {
       console.error("OpenAI error", {
-        status: aiResponse.status,
+        status: response.status,
         type: data?.error?.type || "unknown",
         message: data?.error?.message || "Sin detalle del proveedor",
         model: OPENAI_MODEL
       });
-      return json(502, {
-        error: "No pude conectar con el modelo de IA",
-        reason: getSafeProviderReason(aiResponse.status, data?.error?.type)
-      });
+      return null;
     }
 
-    const answer = extractResponseText(data);
-    if (!answer) {
-      return json(502, { error: "El modelo no devolvió una respuesta útil" });
-    }
-
-    return json(200, { answer, service, provider: "openai-netlify" });
-  } catch {
-    return json(500, { error: "Error interno del asistente" });
+    return extractResponseText(data);
+  } catch (error) {
+    console.error("OpenAI fetch error", error);
+    return null;
   }
-};
+}
 
-function buildMessages(service, message, documentContext, history) {
+function buildMessages(service, message, documentContext, history, context = "") {
   const documentText = documentContext?.text
     ? `Documento adjunto (${documentContext.name}): ${documentContext.text}`
     : documentContext?.name
@@ -116,6 +245,8 @@ function buildMessages(service, message, documentContext, history) {
         "Si detectas urgencia, documento formal, firma próxima, despido, demanda, deuda o plazo, recomienda derivar a asistente humano o agendar cita.",
         "Estructura la respuesta con: entendí esto, punto clave, próximos pasos y una pregunta de seguimiento.",
         "Usa español chileno neutro, cercano y claro.",
+        context ? `Contexto LegalEasy:
+${context}` : "",
         documentText
       ].filter(Boolean).join(" ")
     },
@@ -131,6 +262,87 @@ function buildMessages(service, message, documentContext, history) {
     }),
     { role: "user", content: message }
   ];
+}
+
+function buildPromptText(service, message, documentContext, history, context) {
+  const historyText = history
+    .slice(-10)
+    .map((item) => `${item.role === "assistant" ? "Asistente" : "Usuario"}: ${cleanText(item.content, 2500)}`)
+    .join("\n");
+  const documentText = documentContext?.text
+    ? `Documento adjunto (${documentContext.name}): ${documentContext.text}`
+    : documentContext?.name
+      ? `El usuario adjuntó ${documentContext.name}, pero no hay texto extraído.`
+      : "Sin documento adjunto.";
+
+  return [
+    "Eres el Agente LegalEasy, asistente legal conversacional chileno para atención inicial.",
+    "Actúa como un asistente humano competente: escucha, ordena, pregunta y propone el siguiente paso.",
+    `Área detectada: ${serviceLabels[service]} (${servicePrompts[service]}).`,
+    "No inventes leyes, artículos ni plazos exactos. No des sentencia definitiva.",
+    "Haz máximo 1 a 3 preguntas concretas cuando falte información.",
+    "Si hay documento formal, firma próxima, despido, demanda, deuda, plazo o monto relevante, recomienda derivar a asistente humano o agendar cita.",
+    "Responde con: entendí esto, punto clave, próximos pasos y una pregunta de seguimiento.",
+    `Contexto LegalEasy:\n${context}`,
+    historyText ? `Conversación previa:\n${historyText}` : "",
+    documentText,
+    `Consulta del usuario: ${message}`,
+    "Respuesta:"
+  ].filter(Boolean).join("\n\n");
+}
+
+function buildLegalContext(service, question) {
+  const selected = new Set([service, ...searchManuals(question).map((item) => item.id)]);
+  return legalManuals
+    .filter((manual) => selected.has(manual.id))
+    .map((manual) => [
+      `# ${manual.title}`,
+      manual.summary,
+      ...manual.sections.map((section) => `- ${section}`)
+    ].join("\n"))
+    .join("\n\n");
+}
+
+function searchManuals(question) {
+  const tokens = tokenize(question);
+  const hits = [];
+  for (const manual of legalManuals) {
+    const haystack = `${manual.title}\n${manual.summary}\n${manual.sections.join("\n")}`.toLowerCase();
+    const score = tokens.reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0);
+    if (score > 0) {
+      hits.push({ id: manual.id, score });
+    }
+  }
+  return hits.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+function tokenize(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3)
+    .slice(0, 16);
+}
+
+function buildLocalFallback(service, message, documentContext, context) {
+  const label = serviceLabels[service] || serviceLabels[detectService(message, documentContext)] || "Consulta legal";
+  const hasDocument = Boolean(documentContext?.name);
+  return [
+    `Entendí que tu consulta se relaciona con ${label}.`,
+    hasDocument
+      ? `Veo que hay un documento asociado (${documentContext.name}). Para revisarlo bien necesito que me indiques qué te preocupa: plazo, firma, multa, pago, despido, reclamo u otra cláusula.`
+      : "Para orientarte mejor necesito ubicar si hay contrato, carta, correo, notificación, deuda, plazo o documento formal.",
+    "Punto clave: si existe un plazo, una firma cercana, una notificación formal o un monto relevante, conviene derivar el caso a revisión humana antes de actuar.",
+    "Próximos pasos:",
+    "1. Resume qué ocurrió y desde cuándo.",
+    "2. Indica qué documento existe y qué resultado buscas.",
+    "3. Si necesitas respuesta formal o revisión de documento, usa Derivar a asistente o Agendar cita.",
+    "Pregunta para seguir: ¿hay un plazo concreto o documento que debas firmar/responder?"
+  ].join("\n");
 }
 
 function parseBody(body) {
@@ -197,6 +409,11 @@ function extractResponseText(data) {
     .map((item) => item.text)
     .join("\n")
     .trim();
+}
+
+function extractGeminiText(data) {
+  const text = data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || "").join("") || "";
+  return String(text || "").trim() || null;
 }
 
 function cleanText(value, maxLength) {
