@@ -1554,6 +1554,18 @@ a {
   cursor: pointer;
 }
 
+.agent-widget-derive {
+  min-height: 42px;
+  padding: 0.65rem 0.85rem;
+  border: 0;
+  border-radius: 16px;
+  background: var(--navy);
+  color: white;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
 .agent-widget-upload input {
   position: absolute;
   width: 1px;
@@ -1590,6 +1602,119 @@ a {
   color: white;
   font: inherit;
   font-weight: 900;
+  cursor: pointer;
+}
+
+.lead-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: none;
+  place-items: center;
+  padding: 1rem;
+}
+
+.lead-modal.is-open {
+  display: grid;
+}
+
+.lead-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 9, 20, 0.78);
+  backdrop-filter: blur(6px);
+}
+
+.lead-modal-dialog {
+  position: relative;
+  width: min(720px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 1.25rem;
+  border: 1px solid rgba(176, 141, 87, 0.24);
+  border-radius: 28px;
+  background: #fffdf8;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.38);
+}
+
+.lead-modal-dialog h2 {
+  margin: 0 0 0.75rem;
+  color: var(--navy);
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  letter-spacing: -0.04em;
+}
+
+.lead-modal-dialog p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.lead-modal-dialog label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--navy);
+  font-weight: 800;
+}
+
+.lead-modal-dialog input,
+.lead-modal-dialog textarea {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(95, 44, 145, 0.16);
+  border-radius: 16px;
+  background: white;
+  color: var(--navy);
+  font: inherit;
+  font-weight: 500;
+}
+
+.lead-modal-dialog textarea {
+  resize: vertical;
+}
+
+.lead-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.lead-checkbox {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+}
+
+.lead-checkbox input {
+  width: auto;
+}
+
+.lead-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.lead-status {
+  min-height: 1.4rem;
+  margin-top: 0.8rem;
+  color: var(--primary-dark);
+  font-weight: 800;
+}
+
+.lead-modal-close {
+  float: right;
+  padding: 0.6rem 0.85rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--navy);
+  color: white;
+  font: inherit;
+  font-weight: 800;
   cursor: pointer;
 }
 
@@ -1665,6 +1790,10 @@ a {
   }
 
   .agent-widget-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .lead-form-grid {
     grid-template-columns: 1fr;
   }
 }

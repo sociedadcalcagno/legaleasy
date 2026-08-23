@@ -166,6 +166,8 @@ const serviceData = {
 const serviceSelect = document.querySelector("#service-select");
 const questionsContainer = document.querySelector("#assistant-questions");
 const useQuestionButton = document.querySelector("#assistant-use-question-button");
+const deriveButton = document.querySelector("#assistant-derive-button");
+const scheduleButton = document.querySelector("#assistant-schedule-button");
 const sendButton = document.querySelector("#assistant-send-button");
 const messageInput = document.querySelector("#assistant-message");
 const documentUpload = document.querySelector("#document-upload");
@@ -188,10 +190,23 @@ const agentWidgetInput = document.querySelector("#agent-widget-input");
 const agentWidgetFile = document.querySelector("#agent-widget-file");
 const agentWidgetFileStatus = document.querySelector("#agent-widget-file-status");
 const agentWidgetBody = document.querySelector("#agent-widget-body");
+const agentWidgetDerive = document.querySelector("#agent-widget-derive");
+const leadModal = document.querySelector("#lead-modal");
+const leadForm = document.querySelector("#lead-form");
+const leadName = document.querySelector("#lead-name");
+const leadEmail = document.querySelector("#lead-email");
+const leadPhone = document.querySelector("#lead-phone");
+const leadMessage = document.querySelector("#lead-message");
+const leadWantsAppointment = document.querySelector("#lead-wants-appointment");
+const leadAppointmentPreference = document.querySelector("#lead-appointment-preference");
+const leadStatus = document.querySelector("#lead-status");
+const leadSubmitButton = document.querySelector("#lead-submit-button");
+const leadCloseButtons = document.querySelectorAll("[data-lead-close]");
 
 let currentQuestionIndex = 0;
 let documentContext = null;
 let widgetDocumentContext = null;
+let leadContext = null;
 const conversationHistory = [];
 const widgetHistory = [];
 
@@ -492,6 +507,93 @@ function addWidgetMessage(role, text) {
   agentWidgetBody.scrollTop = agentWidgetBody.scrollHeight;
 }
 
+function buildLeadSummary(source) {
+  const history = source === "widget" ? widgetHistory : conversationHistory;
+  const documentData = source === "widget" ? widgetDocumentContext : documentContext;
+  const lastUserMessage = [...history].reverse().find((item) => item.role === "user")?.content || "";
+  const lastAssistantMessage = [...history].reverse().find((item) => item.role === "assistant")?.content || "";
+  const service = source === "widget" ? "auto" : serviceSelect.value;
+  const documentLine = documentData?.name ? `Documento adjunto: ${documentData.name}.` : "Sin documento adjunto en el agente.";
+
+  return {
+    source,
+    service,
+    documentName: documentData?.name || "",
+    documentReadable: Boolean(documentData?.readable),
+    history,
+    message: [
+      documentLine,
+      lastUserMessage ? `Consulta del usuario: ${lastUserMessage}` : "Consulta del usuario: pendiente de completar.",
+      lastAssistantMessage ? `Respuesta previa del agente: ${lastAssistantMessage.slice(0, 1200)}` : ""
+    ].filter(Boolean).join("\n\n")
+  };
+}
+
+function openLeadModal(source = "assistant", wantsAppointment = false) {
+  leadContext = buildLeadSummary(source);
+  leadMessage.value = leadContext.message;
+  leadWantsAppointment.checked = wantsAppointment;
+  leadStatus.textContent = "";
+  leadSubmitButton.disabled = false;
+  leadModal.classList.add("is-open");
+  leadModal.setAttribute("aria-hidden", "false");
+  leadName.focus();
+}
+
+function closeLeadModal() {
+  leadModal.classList.remove("is-open");
+  leadModal.setAttribute("aria-hidden", "true");
+}
+
+async function submitLead(event) {
+  event.preventDefault();
+  const name = leadName.value.trim();
+  const email = leadEmail.value.trim();
+  const phone = leadPhone.value.trim();
+  const message = leadMessage.value.trim();
+
+  if (!name || (!email && !phone) || !message) {
+    leadStatus.textContent = "Indica tu nombre, email o WhatsApp, y un resumen del caso.";
+    return;
+  }
+
+  leadSubmitButton.disabled = true;
+  leadStatus.textContent = "Enviando caso...";
+
+  try {
+    const response = await fetch("/api/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...leadContext,
+        name,
+        email,
+        phone,
+        message,
+        wantsAppointment: leadWantsAppointment.checked,
+        appointmentPreference: leadAppointmentPreference.value.trim()
+      })
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      leadStatus.textContent = data.error || "No se pudo enviar el caso.";
+      leadSubmitButton.disabled = false;
+      return;
+    }
+
+    leadStatus.textContent = `Caso recibido (${data.id}). Un asistente podrá revisar tu consulta.`;
+    if (data.appointmentUrl) {
+      window.open(data.appointmentUrl, "_blank", "noopener,noreferrer");
+    }
+    leadForm.reset();
+    setTimeout(closeLeadModal, 1800);
+  } catch {
+    leadStatus.textContent = "No se pudo conectar con el servidor. Intenta nuevamente.";
+    leadSubmitButton.disabled = false;
+  }
+}
+
 async function sendWidgetMessage(message) {
   addWidgetMessage("user", message);
   const requestHistory = widgetHistory.slice(-8);
@@ -566,6 +668,14 @@ agentWidgetFile.addEventListener("change", async () => {
     return;
   }
   await loadWidgetDocument(file);
+});
+
+deriveButton.addEventListener("click", () => openLeadModal("assistant", false));
+scheduleButton.addEventListener("click", () => openLeadModal("assistant", true));
+agentWidgetDerive.addEventListener("click", () => openLeadModal("widget", false));
+leadForm.addEventListener("submit", submitLead);
+leadCloseButtons.forEach((button) => {
+  button.addEventListener("click", closeLeadModal);
 });
 
 let isDraggingAgent = false;

@@ -313,6 +313,12 @@
               <button class="button secondary" id="assistant-use-question-button" type="button">
                 Usar pregunta sugerida
               </button>
+              <button class="button secondary" id="assistant-derive-button" type="button">
+                Derivar a asistente
+              </button>
+              <button class="button secondary" id="assistant-schedule-button" type="button">
+                Agendar cita
+              </button>
               <button class="button primary" id="assistant-send-button" type="button">
                 Preguntar al asistente
               </button>
@@ -438,6 +444,7 @@
           <input id="agent-widget-file" type="file" accept=".txt,.md,.csv,.json,.html,.htm,.pdf,.doc,.docx">
           <span>Subir documento</span>
         </label>
+        <button class="agent-widget-derive" id="agent-widget-derive" type="button">Derivar a asistente</button>
         <small id="agent-widget-file-status">El agente detecta el área legal automáticamente.</small>
       </div>
       <div class="agent-widget-input-row">
@@ -453,6 +460,46 @@
       <h2 id="image-modal-title">Imagen</h2>
       <img id="image-modal-img" src="" alt="">
     </div>
+  </div>
+  <div class="lead-modal" id="lead-modal" aria-hidden="true">
+    <div class="lead-modal-backdrop" data-lead-close></div>
+    <form class="lead-modal-dialog" id="lead-form" aria-labelledby="lead-modal-title">
+      <button class="lead-modal-close" type="button" data-lead-close aria-label="Cerrar derivación">Cerrar</button>
+      <span class="eyebrow">Derivación humana</span>
+      <h2 id="lead-modal-title">Enviar caso a un asistente LegalEasy</h2>
+      <p>Guardaremos tu consulta para que una persona del equipo la revise y pueda contactarte o ayudarte a agendar una cita.</p>
+      <div class="lead-form-grid">
+        <label>
+          Nombre
+          <input id="lead-name" name="name" type="text" autocomplete="name" required>
+        </label>
+        <label>
+          Email
+          <input id="lead-email" name="email" type="email" autocomplete="email">
+        </label>
+        <label>
+          WhatsApp
+          <input id="lead-phone" name="phone" type="tel" autocomplete="tel" placeholder="+56 9...">
+        </label>
+        <label>
+          Preferencia de horario
+          <input id="lead-appointment-preference" name="appointmentPreference" type="text" placeholder="Ej: lunes AM, martes tarde">
+        </label>
+      </div>
+      <label class="lead-checkbox">
+        <input id="lead-wants-appointment" name="wantsAppointment" type="checkbox">
+        Quiero agendar una cita
+      </label>
+      <label>
+        Resumen del caso
+        <textarea id="lead-message" name="message" rows="5" required></textarea>
+      </label>
+      <div class="lead-status" id="lead-status" aria-live="polite"></div>
+      <div class="lead-actions">
+        <button class="button secondary" type="button" data-lead-close>Cancelar</button>
+        <button class="button primary" id="lead-submit-button" type="submit">Enviar caso</button>
+      </div>
+    </form>
   </div>
   <script src="app.js"></script>
 </body>

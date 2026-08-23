@@ -9,13 +9,19 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:1b";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434/api/generate";
+const APPOINTMENT_URL = process.env.APPOINTMENT_URL || "https://wa.me/56933553024?text=Hola%20LegalEasy%2C%20quiero%20agendar%20una%20orientacion%20legal";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const rootDir = __dirname;
+const dataDir = path.join(rootDir, "data");
+const leadsPath = path.join(dataDir, "leads.jsonl");
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8"
+  ".json": "application/json; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8"
 };
 
 const servicePrompts = {
@@ -46,6 +52,16 @@ const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "POST" && request.url === "/api/chat") {
       await handleChat(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/leads") {
+      await handleCreateLead(request, response);
+      return;
+    }
+
+    if (request.method === "GET" && request.url.startsWith("/api/leads")) {
+      await handleListLeads(request, response);
       return;
     }
 
@@ -175,6 +191,78 @@ async function handleChat(request, response) {
   sendJson(response, 200, { answer: text });
 }
 
+async function handleCreateLead(request, response) {
+  const body = await readJsonBody(request);
+  const name = cleanText(body.name, 120);
+  const email = cleanText(body.email, 180);
+  const phone = cleanText(body.phone, 60);
+  const service = cleanText(body.service, 80) || "auto";
+  const message = cleanText(body.message, 3000);
+  const source = cleanText(body.source, 80) || "web";
+  const appointmentPreference = cleanText(body.appointmentPreference, 240);
+  const wantsAppointment = Boolean(body.wantsAppointment);
+  const documentName = cleanText(body.documentName, 180);
+  const documentReadable = Boolean(body.documentReadable);
+  const history = Array.isArray(body.history) ? body.history.slice(-10).map((item) => ({
+    role: item?.role === "assistant" ? "assistant" : "user",
+    content: cleanText(item?.content, 1600)
+  })).filter((item) => item.content) : [];
+
+  if (!name || (!email && !phone) || !message) {
+    sendJson(response, 400, {
+      error: "Indica nombre, email o WhatsApp, y una descripcion breve del caso."
+    });
+    return;
+  }
+
+  const lead = {
+    id: createLeadId(),
+    createdAt: new Date().toISOString(),
+    status: "nuevo",
+    source,
+    service,
+    name,
+    email,
+    phone,
+    message,
+    wantsAppointment,
+    appointmentPreference,
+    documentName,
+    documentReadable,
+    history
+  };
+
+  await fs.promises.mkdir(dataDir, { recursive: true });
+  await fs.promises.appendFile(leadsPath, `${JSON.stringify(lead)}\n`, "utf8");
+
+  sendJson(response, 201, {
+    ok: true,
+    id: lead.id,
+    appointmentUrl: wantsAppointment ? APPOINTMENT_URL : ""
+  });
+}
+
+async function handleListLeads(request, response) {
+  if (!ADMIN_TOKEN) {
+    sendJson(response, 403, { error: "Bandeja no configurada. Define ADMIN_TOKEN en .env." });
+    return;
+  }
+
+  const url = new URL(request.url, `http://localhost:${PORT}`);
+  if (url.searchParams.get("token") !== ADMIN_TOKEN) {
+    sendJson(response, 403, { error: "Acceso denegado" });
+    return;
+  }
+
+  try {
+    const content = await fs.promises.readFile(leadsPath, "utf8");
+    const leads = content.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)).reverse();
+    sendJson(response, 200, { leads });
+  } catch {
+    sendJson(response, 200, { leads: [] });
+  }
+}
+
 async function serveStatic(request, response) {
   const requestPath = request.url === "/" ? "/index.html" : request.url;
   const safePath = path.normalize(decodeURIComponent(requestPath)).replace(/^([.][.][/\\])+/, "");
@@ -209,6 +297,14 @@ function sendJson(response, statusCode, payload) {
     "Content-Type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify(payload));
+}
+
+function cleanText(value, maxLength) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maxLength) : "";
+}
+
+function createLeadId() {
+  return `LE-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
 
 function readJsonBody(request) {
