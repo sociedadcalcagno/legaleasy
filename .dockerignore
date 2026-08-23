@@ -1,0 +1,6 @@
+.env
+data/
+node_modules/
+.git/
+*.mp4
+*.pdf
