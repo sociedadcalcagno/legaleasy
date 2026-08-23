@@ -371,8 +371,8 @@ function detectService(message, documentContext, history = []) {
   const historyText = history.map((item) => item?.content || "").join(" ");
   const text = `${message || ""} ${historyText} ${documentContext?.name || ""} ${documentContext?.text || ""}`.toLowerCase();
   const checks = [
+    ["laboral", ["despido", "desped", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia"]],
     ["revision-contratos", ["contrato", "cláusula", "clausula", "firmar", "arriendo", "multa", "penalidad", "renovación", "renovacion"]],
-    ["laboral", ["despido", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral"]],
     ["reclamaciones-defensa", ["reclamo", "demanda", "notificación", "notificacion", "deuda", "plazo", "defensa"]],
     ["constitucion-empresas", ["empresa", "sociedad", "constituir", "emprendimiento", "socio"]],
     ["documentos-escritos", ["carta", "solicitud", "escrito", "poder", "documento", "redactar"]],
