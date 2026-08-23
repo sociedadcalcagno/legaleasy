@@ -1268,6 +1268,39 @@ a {
   line-height: 1.65;
 }
 
+.chat-actions-guide,
+.agent-widget-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.chat-actions-guide {
+  margin: -0.15rem 2rem 0.5rem 0;
+}
+
+.chat-actions-guide button,
+.agent-widget-guide-actions button {
+  min-height: 38px;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid rgba(95, 44, 145, 0.18);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: var(--legal-purple-dark);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(23, 32, 51, 0.08);
+}
+
+.chat-actions-guide button:hover,
+.agent-widget-guide-actions button:hover {
+  transform: translateY(-2px);
+  border-color: rgba(95, 44, 145, 0.34);
+}
+
 .image-modal {
   position: fixed;
   inset: 0;
@@ -1516,6 +1549,17 @@ a {
 .agent-widget-message strong {
   margin-bottom: 0.35rem;
   font-size: 0.8rem;
+}
+
+.agent-widget-guide-actions {
+  max-width: 94%;
+}
+
+.agent-widget-guide-actions button {
+  min-height: 34px;
+  padding: 0.48rem 0.68rem;
+  font-size: 0.78rem;
+  box-shadow: none;
 }
 
 .agent-widget-form {

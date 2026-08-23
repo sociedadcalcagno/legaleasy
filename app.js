@@ -264,6 +264,26 @@ function addChatMessage(role, text) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+function addChatQuickActions(actions) {
+  if (!actions.length) {
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "chat-actions-guide";
+
+  actions.forEach((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = action.label;
+    button.addEventListener("click", () => handleGuideAction(action, "assistant"));
+    wrapper.appendChild(button);
+  });
+
+  chatLog.appendChild(wrapper);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
 function setAssistantStatus(text) {
   assistantStatus.textContent = text;
 }
@@ -303,21 +323,181 @@ async function readJsonSafe(response) {
 
 function buildClientFallbackAnswer(serviceKey, message, documentData = null) {
   const service = serviceData[serviceKey] || serviceData[detectClientService(message, documentData)] || serviceData["consultas-legales"];
+  const detectedServiceKey = Object.entries(serviceData).find(([, item]) => item === service)?.[0] || "consultas-legales";
+  const guide = buildGuidedResponse(detectedServiceKey, message, documentData);
   const documentLine = documentData?.name
     ? `Documento recibido: ${documentData.name}. Si quieres una revisión humana, usa el botón "Derivar a asistente" para que el equipo pueda revisar el caso.`
     : "Si tienes un documento, puedes subirlo o derivar el caso para revisión humana.";
 
   return [
     `Área detectada: ${service.title}`,
-    "Puedo darte una orientación inicial mientras conectamos la atención humana.",
+    guide.intro,
     documentLine,
-    "Pasos recomendados:",
-    "- Resume qué ocurrió y desde cuándo.",
-    "- Identifica si hay contrato, carta, correo, notificación o plazo urgente.",
-    "- No firmes ni respondas documentos importantes sin revisar el contexto completo.",
-    "- Si necesitas atención real del equipo, presiona \"Derivar a asistente\" o \"Agendar cita\".",
+    "Para avanzar, te recomiendo responder una de estas rutas:",
+    ...guide.steps.map((step) => `- ${step}`),
+    guide.question,
     "Importante: esta respuesta es orientativa y no reemplaza asesoría legal personalizada."
   ].join("\n");
+}
+
+function buildGuidedResponse(serviceKey, message, documentData = null) {
+  const hasDocument = Boolean(documentData?.name);
+  const lowerMessage = String(message || "").toLowerCase();
+
+  if (serviceKey === "revision-contratos") {
+    return {
+      intro: "Te puedo guiar como revisión inicial de contrato, separando riesgos, plazos y puntos que conviene negociar.",
+      steps: [
+        hasDocument ? "Revisar primero objeto, precio, plazo, multas y término anticipado." : "Sube el contrato o copia la cláusula que te preocupa.",
+        "Marca si el problema está en pago, plazo, multa, renovación o término.",
+        "Si ya debes firmar pronto, agenda revisión humana antes de aceptar."
+      ],
+      question: "¿Qué quieres revisar ahora: multa, plazo, pago, término anticipado o renovación?"
+    };
+  }
+
+  if (serviceKey === "laboral") {
+    return {
+      intro: "Te puedo ordenar el caso laboral diferenciando si eres trabajador o empleador y si existe carta, finiquito o aviso.",
+      steps: [
+        "Identifica si el tema es despido, finiquito, deuda de sueldo, contrato o jornada.",
+        "Guarda carta, contrato, liquidaciones, mensajes y fechas relevantes.",
+        "Si hay plazo para reclamar o firmar, conviene derivar el caso."
+      ],
+      question: "¿Eres trabajador o empleador, y ya tienes carta de despido, finiquito o contrato?"
+    };
+  }
+
+  if (serviceKey === "reclamaciones-defensa") {
+    return {
+      intro: "Te puedo ayudar a ordenar una respuesta sin improvisar, revisando quién reclama, qué exige y qué plazo existe.",
+      steps: [
+        "Identifica quién reclama y qué pide exactamente.",
+        "Anota fecha de recepción y plazo para responder.",
+        "Ordena pruebas: pagos, contratos, correos, mensajes o entregas."
+      ],
+      question: "¿Recibiste una notificación formal o es todavía una conversación informal?"
+    };
+  }
+
+  if (serviceKey === "constitucion-empresas") {
+    return {
+      intro: "Te puedo guiar para ordenar el inicio de empresa antes de avanzar con documentos o decisiones societarias.",
+      steps: [
+        "Define socios, aportes, administración y giro.",
+        "Aclara quién firma y toma decisiones.",
+        "Prepara antecedentes para formalizar sin conflictos posteriores."
+      ],
+      question: "¿La empresa será solo tuya o tendrá socios?"
+    };
+  }
+
+  if (serviceKey === "proteccion-marca") {
+    return {
+      intro: "Te puedo guiar para proteger nombre, logo, dominio e identidad comercial antes de que exista conflicto.",
+      steps: [
+        "Define nombre exacto, logo y rubro de uso.",
+        "Revisa si ya usas públicamente la marca.",
+        "Guarda evidencia de uso y evalúa registro o resguardo."
+      ],
+      question: "¿Ya estás usando la marca públicamente o estás antes del lanzamiento?"
+    };
+  }
+
+  if (serviceKey === "apoyo-pymes" || lowerMessage.includes("negocio")) {
+    return {
+      intro: "Te puedo guiar para ordenar el problema legal del negocio por cliente, proveedor, pago, contrato o documento interno.",
+      steps: [
+        "Identifica si el conflicto es con cliente, proveedor, trabajador o socio.",
+        "Ordena documentos, correos, pagos y fechas.",
+        "Define si buscas cobrar, responder, prevenir o negociar."
+      ],
+      question: "¿El problema es con un cliente, proveedor, trabajador, socio o documento?"
+    };
+  }
+
+  return {
+    intro: "Te puedo guiar paso a paso para ordenar el caso antes de derivarlo a una persona del equipo.",
+    steps: [
+      "Cuenta qué ocurrió en una frase.",
+      "Indica si hay documento, contrato, carta, correo o plazo.",
+      "Elige si necesitas revisar, responder, reclamar, firmar o agendar."
+    ],
+    question: "¿Tu consulta tiene documento o plazo urgente?"
+  };
+}
+
+function buildGuideActions(serviceKey, hasDocument = false) {
+  const commonActions = [
+    { label: "Derivar a asistente", type: "derive" },
+    { label: "Agendar cita", type: "schedule" }
+  ];
+
+  const serviceActions = {
+    "revision-contratos": [
+      { label: "Revisar multa", prompt: "Quiero revisar una multa o penalidad del contrato. ¿Qué debo mirar?" },
+      { label: "Revisar plazo", prompt: "Quiero revisar el plazo, renovación o término del contrato. ¿Qué riesgos hay?" },
+      { label: hasDocument ? "Analizar documento" : "Subir contrato", type: hasDocument ? "document" : "upload" }
+    ],
+    laboral: [
+      { label: "Soy trabajador", prompt: "Soy trabajador y necesito ordenar mi caso laboral. ¿Qué antecedentes debo revisar?" },
+      { label: "Soy empleador", prompt: "Soy empleador y necesito ordenar un tema laboral. ¿Qué debo considerar?" },
+      { label: "Tengo finiquito", prompt: "Tengo un finiquito o carta laboral. ¿Qué puntos debo revisar antes de firmar?" }
+    ],
+    "reclamaciones-defensa": [
+      { label: "Tengo plazo", prompt: "Recibí una notificación o reclamo con plazo. ¿Qué hago primero?" },
+      { label: "Responder reclamo", prompt: "Necesito responder un reclamo. ¿Cómo ordeno los antecedentes?" },
+      { label: "Ordenar pruebas", prompt: "¿Qué pruebas o documentos necesito reunir para defender mi posición?" }
+    ],
+    "consultas-legales": [
+      { label: "Tengo documento", type: hasDocument ? "document" : "upload" },
+      { label: "Tengo plazo urgente", prompt: "Tengo un plazo urgente o una notificación. ¿Qué debo hacer primero?" },
+      { label: "No sé el área", prompt: "No sé qué área legal corresponde. Ayúdame a clasificar mi caso." }
+    ]
+  };
+
+  return [...(serviceActions[serviceKey] || serviceActions["consultas-legales"]), ...commonActions];
+}
+
+function handleGuideAction(action, source) {
+  if (action.type === "derive") {
+    openLeadModal(source === "widget" ? "widget" : "assistant", false);
+    return;
+  }
+
+  if (action.type === "schedule") {
+    openLeadModal(source === "widget" ? "widget" : "assistant", true);
+    return;
+  }
+
+  if (action.type === "upload") {
+    if (source === "widget") {
+      agentWidgetFile.click();
+    } else {
+      documentUpload.click();
+    }
+    return;
+  }
+
+  if (action.type === "document") {
+    const prompt = "Revisa el documento cargado y dime riesgos, puntos importantes y próximos pasos.";
+    if (source === "widget") {
+      agentWidgetInput.value = prompt;
+      agentWidgetForm.requestSubmit();
+    } else {
+      messageInput.value = prompt;
+      sendMessage();
+    }
+    return;
+  }
+
+  if (source === "widget") {
+    agentWidgetInput.value = action.prompt;
+    agentWidgetForm.requestSubmit();
+  } else {
+    messageInput.value = action.prompt;
+    sendMessage();
+  }
 }
 
 function detectClientService(message, documentData = null) {
@@ -406,6 +586,7 @@ async function sendMessage() {
     if (!response.ok) {
       const answer = buildClientFallbackAnswer(service, message, documentContext);
       addChatMessage("assistant", answer);
+      addChatQuickActions(buildGuideActions(service, Boolean(documentContext?.name)));
       setAssistantStatus("Orientación local");
       conversationHistory.push({ role: "assistant", content: answer, service });
       return;
@@ -418,6 +599,7 @@ async function sendMessage() {
     removeTypingState();
     const answer = buildClientFallbackAnswer(service, message, documentContext);
     addChatMessage("assistant", answer);
+    addChatQuickActions(buildGuideActions(service, Boolean(documentContext?.name)));
     setAssistantStatus("Orientación local");
     conversationHistory.push({ role: "assistant", content: answer, service });
   } finally {
@@ -585,6 +767,26 @@ function addWidgetMessage(role, text) {
   agentWidgetBody.scrollTop = agentWidgetBody.scrollHeight;
 }
 
+function addWidgetQuickActions(actions) {
+  if (!actions.length) {
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "agent-widget-guide-actions";
+
+  actions.forEach((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = action.label;
+    button.addEventListener("click", () => handleGuideAction(action, "widget"));
+    wrapper.appendChild(button);
+  });
+
+  agentWidgetBody.appendChild(wrapper);
+  agentWidgetBody.scrollTop = agentWidgetBody.scrollHeight;
+}
+
 function buildLeadSummary(source) {
   const history = source === "widget" ? widgetHistory : conversationHistory;
   const documentData = source === "widget" ? widgetDocumentContext : documentContext;
@@ -706,13 +908,19 @@ async function sendWidgetMessage(message) {
     });
     const data = await readJsonSafe(response);
     pendingMessage.remove();
-    const answer = response.ok ? data.answer : buildClientFallbackAnswer("auto", message, widgetDocumentContext);
+    const detectedService = detectClientService(message, widgetDocumentContext);
+    const answer = response.ok ? data.answer : buildClientFallbackAnswer(detectedService, message, widgetDocumentContext);
     addWidgetMessage("assistant", answer);
+    if (!response.ok) {
+      addWidgetQuickActions(buildGuideActions(detectedService, Boolean(widgetDocumentContext?.name)));
+    }
     widgetHistory.push({ role: "assistant", content: answer });
   } catch {
     pendingMessage.remove();
-    const answer = buildClientFallbackAnswer("auto", message, widgetDocumentContext);
+    const detectedService = detectClientService(message, widgetDocumentContext);
+    const answer = buildClientFallbackAnswer(detectedService, message, widgetDocumentContext);
     addWidgetMessage("assistant", answer);
+    addWidgetQuickActions(buildGuideActions(detectedService, Boolean(widgetDocumentContext?.name)));
     widgetHistory.push({ role: "assistant", content: answer });
   }
 }
