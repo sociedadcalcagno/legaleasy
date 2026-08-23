@@ -63,13 +63,13 @@ exports.handler = async (event) => {
 
     const data = await aiResponse.json();
     if (!aiResponse.ok) {
-      return json(502, {
-        error: "No pude conectar con el modelo de IA",
-        openaiStatus: aiResponse.status,
-        openaiMessage: data?.error?.message || "Sin detalle del proveedor",
-        openaiType: data?.error?.type || "unknown",
+      console.error("OpenAI error", {
+        status: aiResponse.status,
+        type: data?.error?.type || "unknown",
+        message: data?.error?.message || "Sin detalle del proveedor",
         model: OPENAI_MODEL
       });
+      return json(502, { error: "No pude conectar con el modelo de IA" });
     }
 
     const answer = extractResponseText(data);

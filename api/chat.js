@@ -68,13 +68,13 @@ module.exports = async function handler(request, response) {
 
     const data = await aiResponse.json();
     if (!aiResponse.ok) {
-      sendJson(response, 502, {
-        error: "No pude conectar con el modelo de IA",
-        openaiStatus: aiResponse.status,
-        openaiMessage: data?.error?.message || "Sin detalle del proveedor",
-        openaiType: data?.error?.type || "unknown",
+      console.error("OpenAI error", {
+        status: aiResponse.status,
+        type: data?.error?.type || "unknown",
+        message: data?.error?.message || "Sin detalle del proveedor",
         model: OPENAI_MODEL
       });
+      sendJson(response, 502, { error: "No pude conectar con el modelo de IA" });
       return;
     }
 
