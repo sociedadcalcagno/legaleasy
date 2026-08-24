@@ -572,6 +572,7 @@ function findDocumentSnippet(text, pattern) {
   const source = String(text || "")
     .replace(/--\s*\d+\s*of\s*\d+\s*--/gi, " ")
     .replace(/Modelo referencial con datos simulados\.?/gi, " ")
+    .replace(/[\x00-\x1F\x7F]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!source) {
