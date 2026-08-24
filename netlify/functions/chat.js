@@ -1,6 +1,6 @@
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
-const { PDFParse } = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 const { buildKnowledgeContext, detectEscalation, getLegalArea } = require("./legal-knowledge");
 
 const serviceLabels = {
@@ -952,17 +952,11 @@ async function extractTextFromPdfBuffer(buffer) {
 }
 
 async function parsePdfText(buffer) {
-  let parser;
   try {
-    parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
+    const result = await pdfParse(buffer);
     return String(result?.text || "").trim();
   } catch {
     return "";
-  } finally {
-    if (parser) {
-      await parser.destroy().catch(() => {});
-    }
   }
 }
 
