@@ -66,8 +66,9 @@ exports.handler = async (event) => {
     }
 
     const shouldEscalate = detectEscalation(`${message} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
-    const conversationalAnswer = buildConversationalAnswer(service, message, documentContext, history, shouldEscalate);
-    if (conversationalAnswer) {
+    const preferProviderDocumentReview = shouldUseProviderForDocumentReview(message, documentContext);
+    const conversationalAnswer = preferProviderDocumentReview ? null : buildConversationalAnswer(service, message, documentContext, history, shouldEscalate);
+    if (!preferProviderDocumentReview && conversationalAnswer) {
       return json(200, { answer: conversationalAnswer, service, provider: "local-engine" });
     }
 
@@ -81,6 +82,13 @@ exports.handler = async (event) => {
     const openAiAnswer = normalizeAssistantAnswer(await tryOpenAi(service, message, documentContext, history, context));
     if (openAiAnswer) {
       return json(200, { answer: openAiAnswer, service, provider: "openai-netlify" });
+    }
+
+    if (preferProviderDocumentReview) {
+      const fallbackDocumentAnswer = buildConversationalAnswer(service, message, documentContext, history, shouldEscalate);
+      if (fallbackDocumentAnswer) {
+        return json(200, { answer: fallbackDocumentAnswer, service, provider: "local-engine" });
+      }
     }
 
     return json(200, {
@@ -108,9 +116,9 @@ async function tryGemini(promptText, documentContext = null) {
 
   try {
     const parts = [{ text: promptText }];
-    const imagePart = buildGeminiImagePart(documentContext);
-    if (imagePart) {
-      parts.push(imagePart);
+    const filePart = buildGeminiFilePart(documentContext);
+    if (filePart) {
+      parts.push(filePart);
     }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -136,6 +144,18 @@ async function tryGemini(promptText, documentContext = null) {
     console.error("Gemini fetch error", error);
     return null;
   }
+}
+
+function shouldUseProviderForDocumentReview(message, documentContext) {
+  if (!documentContext?.fileBase64 || !["pdf", "jpg", "jpeg", "png", "webp"].includes(String(documentContext.extension || "").toLowerCase())) {
+    return false;
+  }
+
+  const messageText = normalizeLoose(message);
+  const documentText = normalizeLoose(`${documentContext.name || ""} ${documentContext.text || ""}`);
+  const hasDocumentQuestion = /revisa|analiza|que dice|documento|archivo|pdf|esto|redactado|sueldo|remuneracion|fecha|fechas|plazo|indefinido|jornada|horario|funciones|cargo|clausula|cláusula/.test(messageText);
+  const isKnownDocument = /contrato|finiquito|carta|demanda|reclamo|notificacion|liquidacion/.test(documentText);
+  return hasDocumentQuestion || isKnownDocument;
 }
 
 async function tryOpenAi(service, message, documentContext, history, context) {
@@ -448,19 +468,30 @@ function buildDocumentAwareAnswer(message, documentContext) {
     return null;
   }
 
-  const text = normalizeLoose(`${message} ${documentContext.name} ${documentContext.text || ""}`);
-  const asksReview = /revisa|analiza|que dice|documento|archivo|pdf|esto|subi|subí|revísalo|revisalo/.test(text);
+  const messageText = normalizeLoose(message);
+  const documentText = normalizeLoose(`${documentContext.name} ${documentContext.text || ""}`);
+  const text = `${messageText} ${documentText}`;
+  const asksReview = /revisa|analiza|que dice|documento|archivo|pdf|esto|subi|subí|revísalo|revisalo|redactado|bien redactado/.test(messageText);
+  const isLaborContract = /contrato individual|contrato de trabajo|contrato trabajo|individual trabajo/.test(text);
+
+  if (isLaborContract) {
+    const contractFollowUp = buildLaborContractDocumentAnswer(messageText, documentContext);
+    if (contractFollowUp) {
+      return contractFollowUp;
+    }
+  }
+
   if (!asksReview) {
     return null;
   }
 
-  if (/contrato individual|contrato de trabajo|contrato trabajo|individual trabajo/.test(text)) {
+  if (isLaborContract) {
     return [
-      "Veo que subiste un contrato individual de trabajo. No lo trataría como carta de despido ni como finiquito: es otro documento.",
+      "Sí, lo reviso como contrato individual de trabajo.",
       documentContext.text
-        ? "Con el texto disponible, lo primero es revisar datos de las partes, cargo o funciones, jornada, remuneración, fecha de inicio, lugar de trabajo, duración del contrato y causales o reglas de término."
-        : "No tengo texto interno confiable extraído de ese PDF en esta vista, así que no sería serio inventar cláusulas. Pero por el nombre del archivo, lo correcto es partir revisándolo como contrato laboral.",
-      "Si quieres, dime qué te preocupa del contrato: sueldo, horario, funciones, plazo, término, descuentos o alguna cláusula específica."
+        ? "A primera vista, lo que conviene revisar para saber si está bien redactado es: partes, cargo o funciones, jornada, remuneración, fecha de inicio, si es plazo fijo o indefinido, lugar de trabajo, descuentos y reglas de término."
+        : "No tengo texto interno confiable de ese PDF en esta vista, así que no sería serio inventar cláusulas. Pero por el nombre del archivo, lo correcto es revisarlo como contrato laboral.",
+      "Partamos por una parte concreta para no quedarnos en generalidades. ¿Quieres que revise primero sueldo, jornada, funciones o plazo del contrato?"
     ].join("\n\n");
   }
 
@@ -473,6 +504,72 @@ function buildDocumentAwareAnswer(message, documentContext) {
   }
 
   return null;
+}
+
+function buildLaborContractDocumentAnswer(messageText, documentContext) {
+  const text = normalizeLoose(`${messageText} ${documentContext?.text || ""}`);
+
+  if (/sueldo|remuneracion|remuneración|pago|monto|liquido|líquido|bruto/.test(messageText)) {
+    return [
+      "Ya, miremos sueldo.",
+      findDocumentSnippet(documentContext.text, /(remuneraci[oó]n|sueldo|renta|pago|liquido|líquido|bruto)/i)
+        ? `En el texto aparece algo relacionado con remuneración: "${findDocumentSnippet(documentContext.text, /(remuneraci[oó]n|sueldo|renta|pago|liquido|líquido|bruto)/i)}".`
+        : "No logro aislar una cláusula clara de remuneración desde el texto extraído del PDF, así que no voy a inventar el monto.",
+      "Para que esté bien redactado, debería decir con claridad el sueldo o forma de cálculo, periodicidad de pago, bonos o variables si existen, descuentos autorizados y si el monto es bruto o líquido. Si solo dice algo ambiguo como 'según acuerdo' o no distingue bonos/descuentos, queda débil.",
+      "¿Puedes copiar la cláusula de remuneración o confirmar si el contrato muestra un monto exacto?"
+    ].join("\n\n");
+  }
+
+  if (/fecha|fechas|plazo fijo|indefinido|duracion|duración|termino|término|vence|vencimiento/.test(messageText)) {
+    return [
+      "Sí, esa es una parte clave: hay que distinguir si el contrato es indefinido o a plazo fijo.",
+      findDocumentSnippet(documentContext.text, /(plazo|indefinid|duraci[oó]n|fecha de inicio|vigencia|vencimiento|t[eé]rmino)/i)
+        ? `En el texto aparece esto relacionado con plazo o vigencia: "${findDocumentSnippet(documentContext.text, /(plazo|indefinid|duraci[oó]n|fecha de inicio|vigencia|vencimiento|t[eé]rmino)/i)}".`
+        : "No logro aislar una cláusula clara de plazo desde el texto extraído. Por eso no puedo afirmar todavía si es fijo o indefinido solo con seguridad desde acá.",
+      "Para estar bien redactado, un contrato indefinido debería dejar clara la fecha de inicio sin fecha final. Uno a plazo fijo debería decir fecha de inicio y fecha exacta de término, o un evento objetivo de término. Si mezcla ambas cosas, queda confuso.",
+      "Cópialo si puedes: la parte donde dice duración, vigencia, plazo o fecha de término."
+    ].join("\n\n");
+  }
+
+  if (/funcion|funciones|cargo|labor|tarea|puesto/.test(messageText)) {
+    return [
+      "Ya, revisemos cargo y funciones.",
+      findDocumentSnippet(documentContext.text, /(cargo|funciones|labores|puesto|servicios)/i)
+        ? `El texto menciona algo cercano a funciones: "${findDocumentSnippet(documentContext.text, /(cargo|funciones|labores|puesto|servicios)/i)}".`
+        : "No logro aislar la cláusula de cargo o funciones desde el texto extraído.",
+      "Idealmente debe decir el cargo y las funciones principales con suficiente claridad. Si queda demasiado abierto, después puede prestarse para cambios de funciones o exigencias que no estaban claras al firmar.",
+      "¿Quieres que lo miremos desde el punto de vista del trabajador o del empleador?"
+    ].join("\n\n");
+  }
+
+  if (/jornada|horario|turno|horas|colacion|colación/.test(messageText)) {
+    return [
+      "Ya, jornada y horario también son importantes.",
+      findDocumentSnippet(documentContext.text, /(jornada|horario|turno|horas|colaci[oó]n)/i)
+        ? `En el texto aparece esto relacionado con jornada: "${findDocumentSnippet(documentContext.text, /(jornada|horario|turno|horas|colaci[oó]n)/i)}".`
+        : "No logro aislar una cláusula clara de jornada u horario desde el texto extraído.",
+      "Para estar bien redactado debería indicar jornada, distribución semanal, horario o sistema de turnos, descanso/colación cuando corresponda y lugar o modalidad de prestación de servicios.",
+      "¿Tu duda es si el horario está claro o si te podrían cambiar la jornada después?"
+    ].join("\n\n");
+  }
+
+  return null;
+}
+
+function findDocumentSnippet(text, pattern) {
+  const source = String(text || "").replace(/\s+/g, " ").trim();
+  if (!source) {
+    return "";
+  }
+
+  const match = pattern.exec(source);
+  if (!match) {
+    return "";
+  }
+
+  const start = Math.max(0, match.index - 80);
+  const end = Math.min(source.length, match.index + 220);
+  return source.slice(start, end).trim();
 }
 
 function buildSocialAnswer(message, history = []) {
@@ -855,14 +952,20 @@ function mimeTypeFromExtension(extension) {
   return "";
 }
 
-function buildGeminiImagePart(documentContext) {
-  if (!documentContext || !isImageDocument(documentContext) || !documentContext.fileBase64) {
+function buildGeminiFilePart(documentContext) {
+  if (!documentContext?.fileBase64) {
+    return null;
+  }
+
+  const extension = String(documentContext.extension || "").toLowerCase();
+  const isSupportedPdf = extension === "pdf" || documentContext.mimeType === "application/pdf";
+  if (!isImageDocument(documentContext) && !isSupportedPdf) {
     return null;
   }
 
   return {
     inline_data: {
-      mime_type: documentContext.mimeType || mimeTypeFromExtension(documentContext.extension) || "image/jpeg",
+      mime_type: isSupportedPdf ? "application/pdf" : documentContext.mimeType || mimeTypeFromExtension(documentContext.extension) || "image/jpeg",
       data: documentContext.fileBase64
     }
   };
