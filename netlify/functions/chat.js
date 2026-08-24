@@ -1,5 +1,6 @@
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const { PDFParse } = require("pdf-parse");
 const { buildKnowledgeContext, detectEscalation, getLegalArea } = require("./legal-knowledge");
 
 const serviceLabels = {
@@ -46,7 +47,7 @@ exports.handler = async (event) => {
   try {
     const body = parseBody(event.body);
     const message = cleanText(body.message, 5000);
-    const documentContext = enrichDocumentContext(normalizeDocument(body.document));
+    const documentContext = await enrichDocumentContext(normalizeDocument(body.document));
     const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
     const requestedService = cleanText(body.service, 80);
     const detectedService = detectService(message, documentContext, history);
@@ -510,24 +511,35 @@ function buildLaborContractDocumentAnswer(messageText, documentContext) {
   const text = normalizeLoose(`${messageText} ${documentContext?.text || ""}`);
 
   if (/sueldo|remuneracion|remuneración|pago|monto|liquido|líquido|bruto/.test(messageText)) {
+    const remunerationSnippet = findDocumentSnippet(documentContext.text, /(remuneraci[oó]n|sueldo|renta|pago|liquido|líquido|bruto)/i);
+    const amount = extractMoneyAmount(remunerationSnippet || documentContext.text);
     return [
       "Ya, miremos sueldo.",
-      findDocumentSnippet(documentContext.text, /(remuneraci[oó]n|sueldo|renta|pago|liquido|líquido|bruto)/i)
-        ? `En el texto aparece algo relacionado con remuneración: "${findDocumentSnippet(documentContext.text, /(remuneraci[oó]n|sueldo|renta|pago|liquido|líquido|bruto)/i)}".`
+      remunerationSnippet
+        ? `En el contrato aparece una cláusula de remuneración${amount ? ` con monto ${amount}` : ""}: "${remunerationSnippet}".`
         : "No logro aislar una cláusula clara de remuneración desde el texto extraído del PDF, así que no voy a inventar el monto.",
-      "Para que esté bien redactado, debería decir con claridad el sueldo o forma de cálculo, periodicidad de pago, bonos o variables si existen, descuentos autorizados y si el monto es bruto o líquido. Si solo dice algo ambiguo como 'según acuerdo' o no distingue bonos/descuentos, queda débil.",
-      "¿Puedes copiar la cláusula de remuneración o confirmar si el contrato muestra un monto exacto?"
+      amount
+        ? "Eso está mejor que una redacción ambigua, porque indica monto y señala que es bruto. Igual revisaría si además dice fecha o forma de pago, bonos variables y descuentos permitidos."
+        : "Para que esté bien redactado, debería decir con claridad el sueldo o forma de cálculo, periodicidad de pago, bonos o variables si existen, descuentos autorizados y si el monto es bruto o líquido.",
+      "¿Quieres que revise ahora si los bonos o variables quedan claros?"
     ].join("\n\n");
   }
 
   if (/fecha|fechas|plazo fijo|indefinido|duracion|duración|termino|término|vence|vencimiento/.test(messageText)) {
+    const durationSnippet = findDocumentSnippet(documentContext.text, /(plazo|indefinid|duraci[oó]n|fecha de inicio|vigencia|vencimiento|t[eé]rmino)/i);
+    const isIndefinite = /duraci[oó]n indefinida|contrato tendr[aá] duraci[oó]n indefinida|indefinido/.test(normalizeLoose(durationSnippet));
+    const isFixedTerm = /plazo fijo|fecha de t[eé]rmino|vencimiento|hasta el|durara hasta|durará hasta/.test(normalizeLoose(durationSnippet));
     return [
       "Sí, esa es una parte clave: hay que distinguir si el contrato es indefinido o a plazo fijo.",
-      findDocumentSnippet(documentContext.text, /(plazo|indefinid|duraci[oó]n|fecha de inicio|vigencia|vencimiento|t[eé]rmino)/i)
-        ? `En el texto aparece esto relacionado con plazo o vigencia: "${findDocumentSnippet(documentContext.text, /(plazo|indefinid|duraci[oó]n|fecha de inicio|vigencia|vencimiento|t[eé]rmino)/i)}".`
+      durationSnippet
+        ? `En el texto aparece esto sobre duración: "${durationSnippet}".`
         : "No logro aislar una cláusula clara de plazo desde el texto extraído. Por eso no puedo afirmar todavía si es fijo o indefinido solo con seguridad desde acá.",
-      "Para estar bien redactado, un contrato indefinido debería dejar clara la fecha de inicio sin fecha final. Uno a plazo fijo debería decir fecha de inicio y fecha exacta de término, o un evento objetivo de término. Si mezcla ambas cosas, queda confuso.",
-      "Cópialo si puedes: la parte donde dice duración, vigencia, plazo o fecha de término."
+      isIndefinite
+        ? "Con esa redacción, se entiende como contrato indefinido: tiene fecha de inicio, pero no fecha final. Eso está bien para un indefinido."
+        : isFixedTerm
+          ? "Con esa redacción, parece apuntar a plazo fijo. En ese caso debería quedar muy clara la fecha de término o el evento objetivo que termina el contrato."
+          : "Para estar bien redactado, un indefinido debe dejar clara la fecha de inicio sin fecha final; uno a plazo fijo debe indicar fecha exacta de término o evento objetivo.",
+      "¿Quieres que siga con jornada/horario o con funciones del cargo?"
     ].join("\n\n");
   }
 
@@ -557,7 +569,11 @@ function buildLaborContractDocumentAnswer(messageText, documentContext) {
 }
 
 function findDocumentSnippet(text, pattern) {
-  const source = String(text || "").replace(/\s+/g, " ").trim();
+  const source = String(text || "")
+    .replace(/--\s*\d+\s*of\s*\d+\s*--/gi, " ")
+    .replace(/Modelo referencial con datos simulados\.?/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!source) {
     return "";
   }
@@ -567,9 +583,14 @@ function findDocumentSnippet(text, pattern) {
     return "";
   }
 
-  const start = Math.max(0, match.index - 80);
-  const end = Math.min(source.length, match.index + 220);
+  const start = Math.max(0, match.index);
+  const end = Math.min(source.length, match.index + 280);
   return source.slice(start, end).trim();
+}
+
+function extractMoneyAmount(text) {
+  const match = String(text || "").match(/\$\s?[0-9\.]+(?:,[0-9]+)?/);
+  return match ? match[0].replace(/\s+/g, "") : "";
 }
 
 function buildSocialAnswer(message, history = []) {
@@ -882,7 +903,7 @@ function normalizeDocument(document) {
   };
 }
 
-function enrichDocumentContext(documentContext) {
+async function enrichDocumentContext(documentContext) {
   if (!documentContext || documentContext.text || !documentContext.fileBase64) {
     return documentContext;
   }
@@ -892,7 +913,7 @@ function enrichDocumentContext(documentContext) {
     let extractedText = "";
 
     if (documentContext.extension === "pdf") {
-      extractedText = extractTextFromPdfBuffer(buffer);
+      extractedText = await extractTextFromPdfBuffer(buffer);
     } else if (documentContext.extension === "docx") {
       extractedText = extractTextFromDocxBuffer(buffer);
     }
@@ -911,7 +932,12 @@ function enrichDocumentContext(documentContext) {
   }
 }
 
-function extractTextFromPdfBuffer(buffer) {
+async function extractTextFromPdfBuffer(buffer) {
+  const parsed = await parsePdfText(buffer);
+  if (parsed && parsed.replace(/\s+/g, " ").trim().length > 80) {
+    return parsed.replace(/\s+/g, " ").trim();
+  }
+
   const raw = buffer.toString("latin1");
   const matches = raw.match(/\((?:\\.|[^\\)]){8,}\)/g) || [];
   const text = matches
@@ -923,6 +949,21 @@ function extractTextFromPdfBuffer(buffer) {
     .trim();
 
   return text.length > 80 ? text : "";
+}
+
+async function parsePdfText(buffer) {
+  let parser;
+  try {
+    parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    return String(result?.text || "").trim();
+  } catch {
+    return "";
+  } finally {
+    if (parser) {
+      await parser.destroy().catch(() => {});
+    }
+  }
 }
 
 function extractTextFromDocxBuffer(buffer) {
