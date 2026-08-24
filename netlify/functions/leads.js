@@ -8,8 +8,9 @@ exports.handler = async (event) => {
   const toEmail = process.env.LEADS_TO_EMAIL || "sociedadcalcagno@gmail.com";
   const fromEmail = process.env.LEADS_FROM_EMAIL || "LegalEasy <onboarding@resend.dev>";
 
-  if (!cleanText(body.name, 120) || (!cleanText(body.email, 180) && !cleanText(body.phone, 60)) || !cleanText(body.message, 3000)) {
-    return json(400, { error: "Indica nombre, email o WhatsApp, y una descripción breve del caso." });
+  const userEmail = cleanText(body.email, 180);
+  if (!cleanText(body.name, 120) || !isValidEmail(userEmail) || !cleanText(body.message, 3000)) {
+    return json(400, { error: "Indica nombre, email de contacto válido y una descripción breve del caso." });
   }
 
   const emailResult = await sendLeadEmail({ id, body, toEmail, fromEmail });
@@ -19,7 +20,7 @@ exports.handler = async (event) => {
     id,
     delivery: emailResult.ok ? "email" : "stored-without-email",
     note: emailResult.ok
-      ? `Caso enviado por correo a ${toEmail}.`
+      ? `Caso enviado por correo a ${toEmail} con copia a ${userEmail}.`
       : "Caso recibido, pero no se pudo enviar correo. Revisa RESEND_API_KEY en Netlify."
   });
 };
@@ -29,7 +30,8 @@ async function sendLeadEmail({ id, body, toEmail, fromEmail }) {
     return { ok: false, reason: "missing_resend_key" };
   }
 
-  const subject = `[LegalEasy] Nuevo caso derivado ${id}`;
+  const userEmail = cleanText(body.email, 180);
+  const subject = `[LegalEasy] Nuevo caso ejecutivo ${id}`;
   const html = buildLeadEmailHtml(id, body);
   const text = buildLeadEmailText(id, body);
 
@@ -43,6 +45,7 @@ async function sendLeadEmail({ id, body, toEmail, fromEmail }) {
       body: JSON.stringify({
         from: fromEmail,
         to: [toEmail],
+        cc: userEmail && userEmail.toLowerCase() !== String(toEmail).toLowerCase() ? [userEmail] : undefined,
         subject,
         html,
         text,
@@ -66,7 +69,7 @@ async function sendLeadEmail({ id, body, toEmail, fromEmail }) {
 
 function buildLeadEmailHtml(id, body) {
   const rows = buildLeadRows(id, body).map(([label, value]) => `<tr><td style="padding:8px 10px;border-bottom:1px solid #eee;font-weight:700;vertical-align:top;">${escapeHtml(label)}</td><td style="padding:8px 10px;border-bottom:1px solid #eee;white-space:pre-wrap;">${escapeHtml(value || "-")}</td></tr>`).join("");
-  return `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.5;"><h2>Nuevo caso derivado LegalEasy</h2><table style="border-collapse:collapse;width:100%;max-width:760px;">${rows}</table></div>`;
+  return `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.5;"><h2>Nuevo caso ejecutivo LegalEasy</h2><p>Este correo fue enviado al equipo LegalEasy con copia al solicitante.</p><table style="border-collapse:collapse;width:100%;max-width:760px;">${rows}</table></div>`;
 }
 
 function buildLeadEmailText(id, body) {
@@ -132,6 +135,10 @@ function parseBody(body) {
 
 function cleanText(value, maxLength) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maxLength) : "";
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ""));
 }
 
 function escapeHtml(value) {

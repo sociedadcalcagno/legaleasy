@@ -211,9 +211,9 @@ async function handleCreateLead(request, response) {
     content: cleanText(item?.content, 1600)
   })).filter((item) => item.content) : [];
 
-  if (!name || (!email && !phone) || !message) {
+  if (!name || !isValidEmail(email) || !message) {
     sendJson(response, 400, {
-      error: "Indica nombre, email o WhatsApp, y una descripcion breve del caso."
+      error: "Indica nombre, email de contacto valido y una descripcion breve del caso."
     });
     return;
   }
@@ -308,6 +308,10 @@ function sendJson(response, statusCode, payload) {
 
 function cleanText(value, maxLength) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maxLength) : "";
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ""));
 }
 
 function createLeadId() {

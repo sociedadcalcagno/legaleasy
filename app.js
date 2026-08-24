@@ -852,8 +852,8 @@ async function submitLead(event) {
   const phone = leadPhone.value.trim();
   const message = leadMessage.value.trim();
 
-  if (!name || (!email && !phone) || !message) {
-    leadStatus.textContent = "Indica tu nombre, email o WhatsApp, y un resumen del caso.";
+  if (!name || !email || !message) {
+    leadStatus.textContent = "Indica tu nombre, email de contacto y un resumen del caso. El email es necesario para enviarte copia.";
     return;
   }
 
@@ -886,7 +886,7 @@ async function submitLead(event) {
     }
 
     leadStatus.textContent = data.delivery === "email"
-      ? `Caso recibido (${data.id}). Enviamos los antecedentes por correo al equipo LegalEasy.`
+      ? `Caso recibido (${data.id}). Enviamos los antecedentes al equipo LegalEasy y una copia a tu correo.`
       : `Caso recibido (${data.id}). Revisa la configuración de correo para notificar al equipo.`;
     leadForm.reset();
     setTimeout(closeLeadModal, 1800);
