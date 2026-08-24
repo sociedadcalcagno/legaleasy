@@ -183,12 +183,13 @@ function buildMessages(service, message, documentContext, history, context = "")
       role: "system",
       content: [
         "Eres el Agente LegalEasy, un asistente legal conversacional chileno para atención inicial.",
-        "Actúa como un asistente humano competente, pero mantente acotado: no divagues, no hagas clases largas y no salgas del problema legal planteado.",
+        "Actúa como un asistente humano competente: responde con empatía breve, ordena el problema y da un siguiente paso útil.",
         `Área de trabajo: ${serviceLabels[service]} (${servicePrompts[service]}).`,
         "No des sentencia definitiva, no inventes leyes, artículos ni plazos exactos si el usuario no los entrega.",
         "Haz máximo 1 pregunta concreta cuando falte información. Evita respuestas largas y robóticas.",
         "Si detectas urgencia, documento formal, firma próxima, despido, demanda, deuda o plazo, recomienda derivar a asistente humano o agendar cita.",
-        "Entrega exactamente 4 líneas completas, una por cada etiqueta: Entendí esto:, Punto clave:, Siguiente paso:, Pregunta:. Máximo 1200 caracteres total.",
+        "No uses plantilla rígida salvo que ayude. Responde en 2 a 4 párrafos breves, máximo 1200 caracteres.",
+        "Primero reconoce la situación de forma natural; luego explica qué revisar; termina con una sola pregunta concreta.",
         "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
         "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
         "Usa español chileno neutro, cercano y claro.",
@@ -227,14 +228,15 @@ function buildPromptText(service, message, documentContext, history, context) {
 
   return [
     "Eres el Agente LegalEasy, asistente legal conversacional chileno para atención inicial.",
-    "Actúa como un asistente humano competente, pero mantente acotado: no divagues, no hagas clases largas y no salgas del problema legal planteado.",
+    "Actúa como un asistente humano competente: responde con empatía breve, ordena el problema y da un siguiente paso útil.",
     `Área detectada: ${serviceLabels[service]} (${servicePrompts[service]}).`,
     "No inventes leyes, artículos ni plazos exactos. No des sentencia definitiva.",
     "Haz máximo 1 pregunta concreta cuando falte información.",
     detectEscalation(`${message} ${documentContext?.name || ""} ${documentContext?.text || ""}`)
       ? "Atención: esta consulta contiene señales de riesgo o escalamiento. Recomienda revisión profesional antes de una actuación formal."
       : "Si hay documento formal, firma próxima, despido, demanda, deuda, plazo o monto relevante, recomienda derivar a asistente humano o agendar cita.",
-    "Entrega exactamente 4 líneas completas, una por cada etiqueta: Entendí esto:, Punto clave:, Siguiente paso:, Pregunta:. Máximo 1200 caracteres total.",
+    "No uses plantilla rígida salvo que ayude. Responde en 2 a 4 párrafos breves, máximo 1200 caracteres.",
+    "Primero reconoce la situación de forma natural; luego explica qué revisar; termina con una sola pregunta concreta.",
     "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
     "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
     `Contexto LegalEasy:\n${context}`,
@@ -268,53 +270,50 @@ function buildLocalFallback(service, message, documentContext, history = [], sho
 
   if (wantsHuman) {
     return [
-      "Entendí esto: quieres que una persona revise o tome el caso.",
-      "Punto clave: para derivarlo bien necesito dejar el caso ordenado, no solo una consulta suelta.",
-      "Siguiente paso: presiona Derivar a asistente o Agendar cita y agrega nombre, WhatsApp/email y un resumen breve.",
-      "Pregunta: ¿hay un documento o plazo que debamos priorizar?"
-    ].join("\n");
+      "Perfecto. Si quieres que una persona lo revise, lo mejor es derivar el caso con los antecedentes ordenados, no solo con una pregunta suelta.",
+      "Presiona Derivar a asistente o Agendar cita y agrega tu contacto, el resumen del problema, el documento si existe y el bloque horario que prefieras.",
+      "¿Hay algún plazo o documento que el equipo deba priorizar?"
+    ].join("\n\n");
   }
 
   if (isVague) {
     return [
-      "Entendí esto: quieres hacer una consulta, pero todavía falta el tema concreto.",
-      "Punto clave: puedo ayudarte mejor si clasificamos el caso primero.",
-      "Siguiente paso: dime si es contrato, laboral, reclamo/deuda, empresa, marca o documento.",
-      "Pregunta: ¿qué ocurrió y qué necesitas lograr?"
-    ].join("\n");
+      "Te puedo ayudar, pero necesito ubicar primero el tipo de problema. No quiero darte una respuesta genérica si todavía no sabemos si es contrato, laboral, deuda, empresa, marca o documento.",
+      "Cuéntame en una frase qué ocurrió, con quién es el problema y qué necesitas lograr.",
+      "¿Hay algún documento o plazo involucrado?"
+    ].join("\n\n");
   }
 
   if (service === "revision-contratos") {
     return [
-      "Entendí esto: la consulta apunta a revisar un contrato o una cláusula antes de avanzar.",
+      "Entiendo. Si hay un contrato de por medio, especialmente antes de firmar, conviene no mirarlo solo por encima.",
       hasDocument
-        ? `Punto clave: hay un documento asociado (${documentContext.name}); conviene mirar objeto, precio, plazo, multas, renovación y término anticipado.`
-        : "Punto clave: sin ver la cláusula exacta solo puedo orientar; la multa o el plazo dependen de cómo está redactado el contrato.",
+        ? `Con el documento ${documentContext.name}, lo importante es revisar partes, objeto, precio, plazo, multas, renovación y término anticipado.`
+        : "Sin ver la cláusula exacta solo puedo orientar, porque una multa o un plazo dependen mucho de cómo están redactados.",
       shouldEscalate || hasUrgency
-        ? "Siguiente paso: si debes firmar pronto o hay multa, deriva el caso para revisión humana antes de aceptar."
-        : "Siguiente paso: copia la cláusula que te preocupa o sube el contrato para ordenar riesgos.",
-      "Pregunta: ¿la preocupación principal es multa, plazo, pago, renovación o término anticipado?"
-    ].join("\n");
+        ? "Si debes firmar pronto o ya aparece una multa, sería prudente derivarlo para revisión humana antes de aceptar."
+        : "Podemos partir marcando la cláusula que te preocupa y ordenando los riesgos principales.",
+      "¿La preocupación principal es multa, plazo, pago, renovación o término anticipado?"
+    ].join("\n\n");
   }
 
   if (service === "laboral") {
     return [
-      "Entendí esto: la consulta parece laboral.",
-      "Punto clave: cambia mucho si eres trabajador o empleador, y si ya existe carta, finiquito, contrato o aviso formal.",
+      "Entiendo. En temas laborales conviene avanzar con cuidado, sobre todo si hay carta, finiquito o una firma cercana.",
+      "Lo primero es separar si consultas como trabajador o empleador, y revisar contrato, carta, liquidaciones, cotizaciones, fechas y cualquier comunicación escrita.",
       hasUrgency
-        ? "Siguiente paso: no firmes apurado; ordena carta, contrato, liquidaciones, fechas y mensajes antes de responder."
-        : "Siguiente paso: identifica el documento principal y la fecha del hecho.",
-      "Pregunta: ¿eres trabajador o empleador, y qué documento tienes a mano?"
-    ].join("\n");
+        ? "Si debes firmar pronto, no conviene hacerlo apurado sin revisar los montos y la causal indicada."
+        : "Con esos antecedentes se puede ordenar mejor el escenario y ver qué falta.",
+      "¿Eres trabajador o empleador, y qué documento tienes a mano?"
+    ].join("\n\n");
   }
 
   if (service === "reclamaciones-defensa") {
     return [
-      "Entendí esto: hay un reclamo, deuda, notificación o posible defensa que ordenar.",
-      "Punto clave: lo primero es saber quién reclama, qué exige, cómo notificó y si dio plazo.",
-      "Siguiente paso: reúne contrato, pagos, correos, mensajes, boletas y fecha de recepción.",
-      "Pregunta: ¿recibiste una notificación formal o todavía es una conversación informal?"
-    ].join("\n");
+      "Entiendo. Si hay un reclamo, deuda o notificación, lo más importante es no responder en caliente ni dejar pasar un eventual plazo.",
+      "Hay que ordenar quién reclama, qué exige, cómo te lo comunicó y qué respaldo tienes: contrato, pagos, correos, mensajes, boletas o comprobantes.",
+      "¿Recibiste una notificación formal o todavía es una conversación informal?"
+    ].join("\n\n");
   }
 
   if (service === "constitucion-empresas") {
@@ -345,16 +344,15 @@ function buildLocalFallback(service, message, documentContext, history = [], sho
   }
 
   return [
-    `Entendí que tu consulta se relaciona con ${label}.`,
+    `Entiendo. Por lo que cuentas, esto parece relacionarse con ${label}.`,
     hasDocument
-      ? `Veo que hay un documento asociado (${documentContext.name}). Para revisarlo bien necesito que me indiques qué te preocupa: plazo, firma, multa, pago, despido, reclamo u otra cláusula.`
-      : `Para orientarte mejor necesito ubicar antecedentes clave: ${area.review?.slice(0, 5).join(", ") || "hechos, fechas y documentos"}.`,
+      ? `Veo que hay un documento asociado (${documentContext.name}). Para revisarlo bien necesito saber qué te preocupa: plazo, firma, multa, pago, despido, reclamo u otra cláusula.`
+      : `Para orientarte mejor necesito ubicar algunos antecedentes clave: ${area.review?.slice(0, 5).join(", ") || "hechos, fechas y documentos"}.`,
     shouldEscalate || hasUrgency
-      ? "Punto clave: hay señales de riesgo o plazo; conviene revisión profesional antes de realizar una actuación formal."
+      ? "Como hay señales de riesgo o plazo, conviene que estos antecedentes sean revisados antes de hacer una actuación formal."
       : area.rule || "Punto clave: mientras más específico sea el hecho y el documento, mejor se puede orientar el siguiente paso.",
-    "Siguiente paso: resume qué ocurrió, desde cuándo, qué documento existe y qué resultado buscas. Si hay documento formal, usa Derivar a asistente.",
-    "Pregunta para seguir: ¿hay un plazo concreto o documento que debas firmar/responder?"
-  ].join("\n");
+    "¿Hay un plazo concreto o documento que debas firmar o responder?"
+  ].join("\n\n");
 }
 
 function parseBody(body) {
