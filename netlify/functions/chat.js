@@ -416,7 +416,7 @@ function buildConversationalAnswer(service, message, documentContext, history = 
   const text = normalizeLoose(message);
   const facts = extractConversationFacts(message, history, documentContext);
 
-  const documentAnswer = buildDocumentAwareAnswer(message, documentContext);
+  const documentAnswer = buildDocumentAwareAnswer(message, documentContext, history);
   if (documentAnswer) {
     return documentAnswer;
   }
@@ -464,7 +464,7 @@ function buildConversationalAnswer(service, message, documentContext, history = 
   return null;
 }
 
-function buildDocumentAwareAnswer(message, documentContext) {
+function buildDocumentAwareAnswer(message, documentContext, history = []) {
   if (!documentContext?.name) {
     return null;
   }
@@ -476,7 +476,7 @@ function buildDocumentAwareAnswer(message, documentContext) {
   const isLaborContract = /contrato individual|contrato de trabajo|contrato trabajo|individual trabajo/.test(text);
 
   if (isLaborContract) {
-    const contractFollowUp = buildLaborContractDocumentAnswer(messageText, documentContext);
+    const contractFollowUp = buildLaborContractDocumentAnswer(messageText, documentContext, history);
     if (contractFollowUp) {
       return contractFollowUp;
     }
@@ -507,8 +507,46 @@ function buildDocumentAwareAnswer(message, documentContext) {
   return null;
 }
 
-function buildLaborContractDocumentAnswer(messageText, documentContext) {
+function buildLaborContractDocumentAnswer(messageText, documentContext, history = []) {
   const text = normalizeLoose(`${messageText} ${documentContext?.text || ""}`);
+  const userHistory = normalizeLoose(getUserHistoryText(history));
+  const lastUserText = normalizeLoose(getLastUserMessage(history));
+  const lastAssistantText = normalizeLoose(getLastAssistantMessage(history));
+  const isAffirmative = /^(si|sí|sii|ya|dale|ok|bueno|por favor|si por favor|sí por favor|claro)(\s|$)/.test(messageText) && messageText.split(" ").length <= 4;
+  const asksNextStep = /que tengo que hacer|qué tengo que hacer|que hago|qué hago|ahora que|ahora qué|siguiente paso|como sigo|cómo sigo|que corresponde|qué corresponde/.test(messageText);
+  const saysWorker = /^(trabajador|soy trabajador|como trabajador|desde trabajador)(\s|$)/.test(messageText);
+
+  if (asksNextStep) {
+    return buildLaborContractNextStepsAnswer(documentContext, false);
+  }
+
+  if (saysWorker) {
+    return buildLaborContractNextStepsAnswer(documentContext, true);
+  }
+
+  if (isAffirmative) {
+    if (/jornada horario o funciones|jornada horario/.test(lastAssistantText)) {
+      return buildLaborContractDocumentAnswer("jornada", documentContext, []);
+    }
+
+    if (/bonos|variables/.test(lastAssistantText)) {
+      return buildLaborContractBonusAnswer(documentContext);
+    }
+
+    if (/funciones|cargo/.test(lastAssistantText) || /funciones|cargo/.test(userHistory)) {
+      return buildLaborContractDocumentAnswer("funciones", documentContext, []);
+    }
+
+    if (/sueldo|remuneracion|remuneración|bonos|variables/.test(userHistory)) {
+      return buildLaborContractDocumentAnswer("sueldo", documentContext, []);
+    }
+
+    if (/fecha|fechas|plazo|indefinido|duracion|duración/.test(lastUserText) || /fecha|fechas|plazo|indefinido|duracion|duración/.test(userHistory)) {
+      return buildLaborContractNextStepsAnswer(documentContext, false);
+    }
+
+    return buildLaborContractNextStepsAnswer(documentContext, false);
+  }
 
   if (/sueldo|remuneracion|remuneración|pago|monto|liquido|líquido|bruto/.test(messageText)) {
     const remunerationSnippet = findDocumentSnippet(documentContext.text, /(remuneraci[oó]n|sueldo|renta|pago|liquido|líquido|bruto)/i);
@@ -566,6 +604,39 @@ function buildLaborContractDocumentAnswer(messageText, documentContext) {
   }
 
   return null;
+}
+
+function buildLaborContractBonusAnswer(documentContext) {
+  const bonusSnippet = findDocumentSnippet(documentContext.text, /(bono|variable|objetivo|asignaci[oó]n|movilizaci[oó]n|colaci[oó]n)/i);
+
+  return [
+    "Ya, revisemos bonos o variables.",
+    bonusSnippet
+      ? `En el contrato aparece esto relacionado con bonos, asignaciones o variables: "${bonusSnippet}".`
+      : "No logro aislar una cláusula clara de bonos o variables desde el texto extraído.",
+    "Para que quede bien redactado, debería decir qué se paga fijo y qué depende de objetivos, cómo se calculan esos objetivos, cuándo se pagan y si pueden cambiarse. Si queda muy abierto, después puede ser difícil exigirlo.",
+    "¿Quieres que revise ahora jornada/horario o funciones?"
+  ].join("\n\n");
+}
+
+function buildLaborContractNextStepsAnswer(documentContext, fromWorkerPerspective = false) {
+  const remunerationSnippet = findDocumentSnippet(documentContext.text, /(remuneraci[oó]n|sueldo|renta|pago|liquido|líquido|bruto)/i);
+  const amount = extractMoneyAmount(remunerationSnippet || documentContext.text);
+  const durationSnippet = findDocumentSnippet(documentContext.text, /(plazo|indefinid|duraci[oó]n|fecha de inicio|vigencia|vencimiento|t[eé]rmino)/i);
+  const isIndefinite = /duraci[oó]n indefinida|contrato tendr[aá] duraci[oó]n indefinida|indefinido/.test(normalizeLoose(durationSnippet));
+
+  return [
+    fromWorkerPerspective
+      ? "Perfecto, lo miro desde tu lado como trabajador."
+      : "Con este contrato, lo que haría ahora es no firmarlo a ciegas: primero cerrar las dudas principales y guardar respaldo.",
+    [
+      amount ? `Sueldo: aparece monto ${amount} y se señala como remuneración bruta.` : "Sueldo: hay que confirmar que aparezca monto, forma de pago y si es bruto o líquido.",
+      isIndefinite ? "Duración: aparece como contrato indefinido, con fecha de inicio y sin fecha final." : "Duración: hay que confirmar si es plazo fijo o indefinido y que la fecha esté clara.",
+      "Revisa además jornada/horario, funciones reales del cargo, lugar de trabajo, bonos variables, descuentos y reglas de término."
+    ].join("\n"),
+    "Mi recomendación práctica: si algo no coincide con lo que te prometieron, pide que lo corrijan antes de firmar. Si ya lo firmaste, guarda copia y anota qué punto no te cuadra para revisarlo aparte.",
+    "¿Quieres que revise ahora jornada/horario o funciones del cargo?"
+  ].join("\n\n");
 }
 
 function findDocumentSnippet(text, pattern) {
@@ -1055,6 +1126,14 @@ function getUserHistoryText(history = []) {
     .filter((item) => item?.role !== "assistant" && typeof item?.content === "string")
     .map((item) => item.content)
     .join(" ");
+}
+
+function getLastUserMessage(history = []) {
+  return [...history].reverse().find((item) => item?.role !== "assistant" && typeof item?.content === "string")?.content || "";
+}
+
+function getLastAssistantMessage(history = []) {
+  return [...history].reverse().find((item) => item?.role === "assistant" && typeof item?.content === "string")?.content || "";
 }
 
 function extractResponseText(data) {
