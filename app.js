@@ -635,9 +635,9 @@ documentUpload.addEventListener("change", async () => {
       readable: false
     };
     const isImage = ["jpg", "jpeg", "png", "webp"].includes(extension);
-    documentPreview.innerHTML = `<strong>${file.name}</strong><span>${isImage ? "Imagen recibida. Describe qué necesitas revisar de la imagen para derivarla o analizarla preliminarmente." : "Documento recibido. Intentare extraer texto desde el servidor al enviar tu pregunta."}</span>`;
+    documentPreview.innerHTML = `<strong>${file.name}</strong><span>${isImage ? "Imagen recibida. El agente intentara leerla con OCR visual al enviar tu pregunta." : "Documento recibido. Intentare extraer texto desde el servidor al enviar tu pregunta."}</span>`;
     setAssistantStatus("Documento recibido");
-    addChatMessage("assistant", `Recibi ${file.name}. ${isImage ? "Por ahora puedo registrar la imagen y guiarte con la descripcion que escribas; si contiene texto importante, copialo en la consulta." : "Escribe tu pregunta y revisare el documento con el mejor metodo disponible localmente."}`);
+    addChatMessage("assistant", `Recibi ${file.name}. ${isImage ? "Escribe que necesitas revisar y tratare de identificar el tipo de documento y texto visible." : "Escribe tu pregunta y revisare el documento con el mejor metodo disponible localmente."}`);
     return;
   }
 
@@ -957,8 +957,8 @@ async function loadWidgetDocument(file) {
       readable: false
     };
     const isImage = ["jpg", "jpeg", "png", "webp"].includes(extension);
-    agentWidgetFileStatus.textContent = `${file.name} recibido. ${isImage ? "Imagen lista para derivar o comentar." : "Intentare extraer texto al consultar."}`;
-    addWidgetMessage("assistant", `Recibi ${file.name}. ${isImage ? "Si contiene texto relevante, escribelo o resume que necesitas revisar." : "Escribe que quieres revisar y detectare el area legal automaticamente."}`);
+    agentWidgetFileStatus.textContent = `${file.name} recibido. ${isImage ? "Intentare leerla con OCR visual al consultar." : "Intentare extraer texto al consultar."}`;
+    addWidgetMessage("assistant", `Recibi ${file.name}. ${isImage ? "Escribe que necesitas revisar y tratare de identificar el documento y texto visible." : "Escribe que quieres revisar y detectare el area legal automaticamente."}`);
     return;
   }
 

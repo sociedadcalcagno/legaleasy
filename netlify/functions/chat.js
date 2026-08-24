@@ -69,7 +69,7 @@ exports.handler = async (event) => {
     const context = buildKnowledgeContext(service, message);
     const shouldEscalate = detectEscalation(`${message} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
     const promptText = buildPromptText(service, message, documentContext, history, context);
-    const geminiAnswer = normalizeAssistantAnswer(await tryGemini(promptText));
+    const geminiAnswer = normalizeAssistantAnswer(await tryGemini(promptText, documentContext));
     if (geminiAnswer) {
       return json(200, { answer: geminiAnswer, service, provider: "gemini-netlify" });
     }
@@ -96,19 +96,25 @@ exports.handler = async (event) => {
   }
 };
 
-async function tryGemini(promptText) {
+async function tryGemini(promptText, documentContext = null) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     return null;
   }
 
   try {
+    const parts = [{ text: promptText }];
+    const imagePart = buildGeminiImagePart(documentContext);
+    if (imagePart) {
+      parts.push(imagePart);
+    }
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: promptText }] }],
+        contents: [{ role: "user", parts }],
         generationConfig: {
           temperature: 0.35,
           maxOutputTokens: 500
@@ -210,10 +216,13 @@ function buildPromptText(service, message, documentContext, history, context) {
     .slice(-10)
     .map((item) => `${item.role === "assistant" ? "Asistente" : "Usuario"}: ${cleanText(item.content, 2500)}`)
     .join("\n");
+  const isImage = isImageDocument(documentContext);
   const documentText = documentContext?.text
     ? `Documento adjunto (${documentContext.name}): ${documentContext.text}`
     : documentContext?.name
-      ? `El usuario adjuntó ${documentContext.name}, pero no hay texto extraído.`
+      ? isImage
+        ? `El usuario adjuntó una imagen (${documentContext.name}). Primero intenta leer visualmente texto visible y reconocer si parece contrato, carta, citación, boleta, factura, finiquito, reclamo u otro documento. Si la imagen no es legible, dilo.`
+        : `El usuario adjuntó ${documentContext.name}, pero no hay texto extraído.`
       : "Sin documento adjunto.";
 
   return [
@@ -361,9 +370,40 @@ function normalizeDocument(document) {
     return null;
   }
 
+  const extension = cleanText(document.extension, 20).toLowerCase();
+  const fileBase64 = cleanText(document.fileBase64, 6_000_000);
+
   return {
     name: cleanText(document.name, 180) || "documento",
-    text: cleanText(document.text, 12000)
+    text: cleanText(document.text, 12000),
+    extension,
+    fileBase64,
+    mimeType: cleanText(document.type, 80) || mimeTypeFromExtension(extension)
+  };
+}
+
+function isImageDocument(documentContext) {
+  return ["jpg", "jpeg", "png", "webp"].includes(String(documentContext?.extension || "").toLowerCase()) ||
+    /^image\//i.test(String(documentContext?.mimeType || ""));
+}
+
+function mimeTypeFromExtension(extension) {
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
+  return "";
+}
+
+function buildGeminiImagePart(documentContext) {
+  if (!documentContext || !isImageDocument(documentContext) || !documentContext.fileBase64) {
+    return null;
+  }
+
+  return {
+    inline_data: {
+      mime_type: documentContext.mimeType || mimeTypeFromExtension(documentContext.extension) || "image/jpeg",
+      data: documentContext.fileBase64
+    }
   };
 }
 
