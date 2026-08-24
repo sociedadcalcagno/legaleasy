@@ -267,6 +267,11 @@ function buildLocalFallback(service, message, documentContext, history = [], sho
   const isVague = tokenize(message).length <= 2 && !hasDocument;
   const hasUrgency = /plazo|mañana|manana|hoy|urgente|firmar|notific|demanda|carta|despido|finiquito|multa|deuda/.test(combined);
   const wantsHuman = /abogado|persona|humano|asesor|asistente|agendar|cita|llamada|contact/.test(combined);
+  const conceptAnswer = buildConceptAnswer(message);
+
+  if (conceptAnswer) {
+    return conceptAnswer;
+  }
 
   if (wantsHuman) {
     return [
@@ -355,6 +360,73 @@ function buildLocalFallback(service, message, documentContext, history = [], sho
   ].join("\n\n");
 }
 
+function buildConceptAnswer(message) {
+  const text = normalizeLoose(message);
+  const asksMeaning = /\b(que es|q es|que significa|significa|defin(e|icion)|explicame|explícame|en simple)\b/.test(text);
+  if (!asksMeaning) {
+    return null;
+  }
+
+  if (/finiquito/.test(text)) {
+    return [
+      "Un finiquito es el documento que normalmente cierra una relación laboral cuando termina el contrato de trabajo.",
+      "En simple: deja por escrito por qué terminó la relación, qué montos se pagan y si el trabajador queda conforme o deja alguna reserva. Por eso no conviene firmarlo sin revisar antes sueldo, vacaciones, indemnizaciones, descuentos, cotizaciones y causal de término.",
+      "Si tienes uno a la vista, puedo ayudarte a ordenar qué puntos mirar primero. ¿Ya tienes el finiquito o solo te avisaron que debes firmarlo?"
+    ].join("\n\n");
+  }
+
+  if (/despido|desped|desepd/.test(text)) {
+    return [
+      "Estar despedido significa que el empleador puso término al contrato de trabajo.",
+      "En simple: no basta con que te digan verbalmente que no sigues. Lo importante es revisar si existe carta de despido, qué causal indica, qué hechos menciona, desde qué fecha rige y si luego te entregan finiquito. La causal debe mirarse contra los hechos y documentos disponibles; no se puede decir automáticamente si está bien o mal aplicada sin revisar eso.",
+      "¿Te entregaron carta de despido o solo te lo comunicaron de palabra?"
+    ].join("\n\n");
+  }
+
+  if (/contrato/.test(text)) {
+    return [
+      "Un contrato es un acuerdo que crea obligaciones para una o más partes.",
+      "En simple: dice quiénes participan, qué se promete, cuánto se paga, por cuánto tiempo, qué pasa si alguien incumple y cómo se termina. Lo delicado suele estar en multas, renovación automática, garantías, término anticipado, exclusividad o responsabilidades poco claras.",
+      "¿Quieres entender un contrato en general o revisar una cláusula específica?"
+    ].join("\n\n");
+  }
+
+  if (/multa|penalidad|clausula penal|clausula de multa/.test(text)) {
+    return [
+      "Una multa contractual es una consecuencia económica que el contrato puede fijar si una parte incumple algo.",
+      "En simple: no se mira solo el monto. Hay que revisar qué conducta activa la multa, si hubo aviso previo, si existe plazo para corregir, si el monto es proporcional y si la cláusula está redactada de forma clara.",
+      "¿La multa aparece en un contrato que todavía no firmas o en uno que ya está vigente?"
+    ].join("\n\n");
+  }
+
+  if (/marca|inapi|logo|nombre comercial/.test(text)) {
+    return [
+      "Una marca es un signo que permite distinguir productos o servicios en el mercado, como un nombre, logo o combinación de ambos.",
+      "En simple: tener una sociedad o comprar un dominio web no significa automáticamente tener protegida la marca. La protección marcaria se revisa por la vía correspondiente, normalmente ante INAPI en Chile.",
+      "¿Quieres proteger un nombre que ya usas o estás antes de lanzar el negocio?"
+    ].join("\n\n");
+  }
+
+  if (/sociedad|spa|ltda|eirl|empresa/.test(text)) {
+    return [
+      "Una empresa puede organizarse de distintas formas jurídicas, como SpA, Ltda. o EIRL, según cómo se quiere administrar, quién participa y cómo crecerá.",
+      "En simple: no hay una estructura mejor para todos. Antes de elegir conviene saber cuántos socios habrá, quién administra, si entrarán inversionistas, qué actividad tendrá y si quieres vender participaciones en el futuro.",
+      "¿La empresa será solo tuya o tendrá socios?"
+    ].join("\n\n");
+  }
+
+  return null;
+}
+
+function normalizeLoose(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function parseBody(body) {
   try {
     return body ? JSON.parse(body) : {};
@@ -409,7 +481,7 @@ function detectService(message, documentContext, history = []) {
   const historyText = history.map((item) => item?.content || "").join(" ");
   const text = `${message || ""} ${historyText} ${documentContext?.name || ""} ${documentContext?.text || ""}`.toLowerCase();
   const checks = [
-    ["laboral", ["despido", "desped", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia"]],
+    ["laboral", ["despido", "desped", "desepd", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia"]],
     ["revision-contratos", ["contrato", "cláusula", "clausula", "firmar", "arriendo", "multa", "penalidad", "renovación", "renovacion"]],
     ["reclamaciones-defensa", ["reclamo", "demanda", "notificación", "notificacion", "deuda", "plazo", "defensa"]],
     ["constitucion-empresas", ["empresa", "sociedad", "constituir", "emprendimiento", "socio"]],
