@@ -48,7 +48,9 @@ exports.handler = async (event) => {
     const message = cleanText(body.message, 5000);
     const documentContext = enrichDocumentContext(normalizeDocument(body.document));
     const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
-    const service = body.service === "auto" ? detectService(message, documentContext, history) : cleanText(body.service, 80);
+    const requestedService = cleanText(body.service, 80);
+    const detectedService = detectService(message, documentContext, history);
+    const service = requestedService === "auto" ? detectedService : chooseService(requestedService, detectedService, message, documentContext);
 
     if (!message) {
       return json(400, { error: "Escribe una consulta antes de enviar" });
@@ -193,6 +195,7 @@ function buildMessages(service, message, documentContext, history, context = "")
         "Si detectas urgencia, documento formal, firma próxima, despido, demanda, deuda o plazo, recomienda derivar a asistente humano o agendar cita.",
         "No uses plantilla rígida salvo que ayude. Responde en 2 a 4 párrafos breves, máximo 1200 caracteres.",
         "Primero reconoce la situación de forma natural; luego explica qué revisar; termina con una sola pregunta concreta.",
+        "No trates tus propias respuestas anteriores como hechos del usuario. Si el usuario cambia de tema o sube un documento nuevo, prioriza el mensaje y documento actual.",
         "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
         "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
         "Usa español chileno neutro, cercano y claro.",
@@ -242,6 +245,7 @@ function buildPromptText(service, message, documentContext, history, context) {
       : "Si hay documento formal, firma próxima, despido, demanda, deuda, plazo o monto relevante, recomienda derivar a asistente humano o agendar cita.",
     "No uses plantilla rígida salvo que ayude. Responde en 2 a 4 párrafos breves, máximo 1200 caracteres.",
     "Primero reconoce la situación de forma natural; luego explica qué revisar; termina con una sola pregunta concreta.",
+    "No trates tus propias respuestas anteriores como hechos del usuario. Si el usuario cambia de tema o sube un documento nuevo, prioriza el mensaje y documento actual.",
     "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
     "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
     documentTypeInstruction,
@@ -290,7 +294,7 @@ function buildLocalFallback(service, message, documentContext, history = [], sho
   const label = serviceLabels[service] || serviceLabels[detectService(message, documentContext)] || "Consulta legal";
   const area = getLegalArea(service);
   const hasDocument = Boolean(documentContext?.name);
-  const combined = `${history.map((item) => item?.content || "").join(" ")} ${message || ""}`.toLowerCase();
+  const combined = `${getUserHistoryText(history)} ${message || ""}`.toLowerCase();
   const isVague = tokenize(message).length <= 2 && !hasDocument;
   const hasUrgency = /plazo|mañana|manana|hoy|urgente|firmar|notific|demanda|carta|despido|finiquito|multa|deuda/.test(combined);
   const wantsHuman = /abogado|persona|humano|asesor|asistente|agendar|cita|llamada|contact/.test(combined);
@@ -389,7 +393,7 @@ function buildLocalFallback(service, message, documentContext, history = [], sho
 
 function buildConversationalAnswer(service, message, documentContext, history = [], shouldEscalate = false) {
   const text = normalizeLoose(message);
-  const facts = extractConversationFacts(message, history);
+  const facts = extractConversationFacts(message, history, documentContext);
 
   const documentAnswer = buildDocumentAwareAnswer(message, documentContext);
   if (documentAnswer) {
@@ -422,6 +426,18 @@ function buildConversationalAnswer(service, message, documentContext, history = 
     if (contractAnswer) {
       return contractAnswer;
     }
+  }
+
+  if (service === "proteccion-marca") {
+    return buildBrandConversationalAnswer(text);
+  }
+
+  if (service === "constitucion-empresas") {
+    return buildCompanyConversationalAnswer(text);
+  }
+
+  if (service === "reclamaciones-defensa") {
+    return buildClaimConversationalAnswer(text);
   }
 
   return null;
@@ -462,7 +478,7 @@ function buildDocumentAwareAnswer(message, documentContext) {
 function buildSocialAnswer(message, history = []) {
   const text = normalizeLoose(message);
   const hasPriorCase = /despido|desped|finiquito|contrato|carta|multa|deuda|acoso|cotizacion|demanda|reclamo|empresa|marca/.test(
-    normalizeLoose(history.map((item) => item?.content || "").join(" "))
+    normalizeLoose(getUserHistoryText(history))
   );
 
   if (/^(hola|holi|buenas|buen dia|buenos dias|buenas tardes|buenas noches|alo|aloo|hello|hi)(\s|$)/.test(text) && text.split(" ").length <= 5) {
@@ -504,8 +520,10 @@ function buildSocialAnswer(message, history = []) {
   return null;
 }
 
-function extractConversationFacts(message, history = []) {
-  const combined = normalizeLoose(`${history.map((item) => item?.content || "").join(" ")} ${message || ""}`);
+function extractConversationFacts(message, history = [], documentContext = null) {
+  const currentScope = normalizeLoose(`${message || ""} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
+  const hasCurrentTopic = /despido|desped|desepd|finiquito|contrato|carta|marca|sociedad|empresa|multa|deuda|reclamo|demanda|notificacion|cotizacion|acoso|trabajo|trabajador|empleador|firmar|firmo/.test(currentScope);
+  const combined = hasCurrentTopic ? currentScope : normalizeLoose(`${getUserHistoryText(history)} ${message || ""}`);
   return {
     area: /despido|desped|desepd|finiquito|trabajador|empleador|sueldo|cotizacion|laboral|renuncia/.test(combined) ? "laboral" : /contrato|arriendo|multa|clausula|penalidad/.test(combined) ? "contratos" : "general",
     isWorker: /soy trabajador|trabajador|me despid|me echaron|mi empleador|mi jefe|trabajo en/.test(combined),
@@ -649,6 +667,30 @@ function buildContractConversationalAnswer(text, facts, shouldEscalate) {
   }
 
   return null;
+}
+
+function buildBrandConversationalAnswer(text) {
+  return [
+    "Ya, si estás pensando en marca o logo, lo importante es no asumir que por tener Instagram, dominio o una sociedad el nombre queda protegido automáticamente.",
+    "Primero hay que ubicar qué quieres proteger exactamente: el nombre, el logo, ambos, o el nombre de un producto/servicio. También importa si ya lo estás usando públicamente y en qué rubro, porque no es lo mismo una marca para ropa, asesorías, comida o tecnología.",
+    "Para partir bien: ¿la marca ya la estás usando o todavía estás antes de lanzarla?"
+  ].join("\n\n");
+}
+
+function buildCompanyConversationalAnswer(text) {
+  return [
+    "Perfecto, si quieres armar una empresa, la pregunta no es solo 'qué sociedad conviene', sino cómo va a funcionar en la práctica.",
+    "Hay que mirar si estarás solo o con socios, quién administrará, qué aportará cada uno, cómo se toman decisiones, qué giro tendrá y qué pasa si alguien quiere salir después. Eso evita hartos problemas más adelante.",
+    "Partamos por lo básico: ¿la empresa será solo tuya o tendrá socios?"
+  ].join("\n\n");
+}
+
+function buildClaimConversationalAnswer(text) {
+  return [
+    "Ya, si hay reclamo, deuda, notificación o una posible demanda, lo primero es no responder apurado ni dejar pasar el plazo sin entender qué te están pidiendo.",
+    "Necesitamos ordenar quién reclama, qué exige, cuándo recibiste el documento, si hay un plazo y qué respaldo tienes: pagos, contrato, mensajes, correos o comprobantes.",
+    "¿Esto llegó como documento formal o todavía es una conversación/cobranza informal?"
+  ].join("\n\n");
 }
 
 function buildConceptAnswer(message) {
@@ -832,8 +874,8 @@ function detectService(message, documentContext, history = []) {
     return "laboral";
   }
 
-  const historyText = history.map((item) => item?.content || "").join(" ");
-  const text = `${message || ""} ${documentText} ${historyText}`.toLowerCase();
+  const currentText = `${message || ""} ${documentText}`.toLowerCase();
+  const historyText = getUserHistoryText(history).toLowerCase();
   const checks = [
     ["laboral", ["despido", "despid", "desped", "desepd", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia", "carta de despido", "necesidades de la empresa", "causal"]],
     ["revision-contratos", ["contrato", "cláusula", "clausula", "firmar", "arriendo", "multa", "penalidad", "renovación", "renovacion"]],
@@ -848,13 +890,32 @@ function detectService(message, documentContext, history = []) {
   let bestService = "consultas-legales";
   let bestScore = 0;
   for (const [service, keywords] of checks) {
-    const score = keywords.reduce((total, keyword) => total + (text.includes(keyword) ? 1 : 0), 0);
+    const currentScore = keywords.reduce((total, keyword) => total + (currentText.includes(keyword) ? 3 : 0), 0);
+    const historyScore = currentScore > 0 ? 0 : keywords.reduce((total, keyword) => total + (historyText.includes(keyword) ? 1 : 0), 0);
+    const score = currentScore + historyScore;
     if (score > bestScore) {
       bestScore = score;
       bestService = service;
     }
   }
   return bestService;
+}
+
+function chooseService(requestedService, detectedService, message, documentContext) {
+  if (!servicePrompts[requestedService]) {
+    return detectedService;
+  }
+
+  const currentText = normalizeLoose(`${message || ""} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
+  const hasStrongCurrentSignal = /contrato|finiquito|despido|carta de despido|demanda|reclamo|marca|sociedad|empresa|multa|cotizacion|acoso|deuda|notificacion/.test(currentText);
+  return hasStrongCurrentSignal ? detectedService : requestedService;
+}
+
+function getUserHistoryText(history = []) {
+  return history
+    .filter((item) => item?.role !== "assistant" && typeof item?.content === "string")
+    .map((item) => item.content)
+    .join(" ");
 }
 
 function extractResponseText(data) {
