@@ -298,7 +298,7 @@ function addTypingState() {
   label.textContent = "LegalEasy";
 
   const paragraph = document.createElement("p");
-  paragraph.textContent = "Pensando en una respuesta util...";
+  paragraph.textContent = "Dame un segundo, estoy mirando bien tu duda...";
 
   article.appendChild(label);
   article.appendChild(paragraph);
@@ -310,6 +310,18 @@ function removeTypingState() {
   const typingNode = document.querySelector("#typing-message");
   if (typingNode) {
     typingNode.remove();
+  }
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function keepNaturalPace(startedAt) {
+  const elapsed = Date.now() - startedAt;
+  const minimumDelay = 950;
+  if (elapsed < minimumDelay) {
+    await wait(minimumDelay - elapsed);
   }
 }
 
@@ -560,7 +572,8 @@ async function sendMessage() {
   messageInput.value = "";
   sendButton.disabled = true;
   useQuestionButton.disabled = true;
-  setAssistantStatus("Analizando");
+  setAssistantStatus("Revisando con calma");
+  const startedAt = Date.now();
   addTypingState();
 
   try {
@@ -581,6 +594,7 @@ async function sendMessage() {
     });
 
     const data = await readJsonSafe(response);
+    await keepNaturalPace(startedAt);
     removeTypingState();
 
     if (!response.ok) {
@@ -593,9 +607,10 @@ async function sendMessage() {
     }
 
     addChatMessage("assistant", data.answer);
-    setAssistantStatus(data.fallback ? "Orientacion inicial" : "IA activa");
+    setAssistantStatus(data.provider === "local-engine" ? "Orientación guiada" : data.fallback ? "Orientación inicial" : "IA activa");
     conversationHistory.push({ role: "assistant", content: data.answer, service });
   } catch {
+    await keepNaturalPace(startedAt);
     removeTypingState();
     const answer = buildClientFallbackAnswer(service, message, documentContext);
     addChatMessage("assistant", answer);
@@ -605,7 +620,7 @@ async function sendMessage() {
   } finally {
     sendButton.disabled = false;
     useQuestionButton.disabled = false;
-    if (assistantStatus.textContent === "Analizando") {
+    if (assistantStatus.textContent === "Revisando con calma") {
       setAssistantStatus("Listo");
     }
   }
@@ -896,7 +911,8 @@ async function sendWidgetMessage(message) {
   addWidgetMessage("user", message);
   const requestHistory = widgetHistory.slice(-8);
   widgetHistory.push({ role: "user", content: message });
-  addWidgetMessage("assistant", "Estoy revisando tu consulta...");
+  const startedAt = Date.now();
+  addWidgetMessage("assistant", "Dame un segundo, lo estoy mirando...");
   const pendingMessage = agentWidgetBody.lastElementChild;
 
   try {
@@ -911,6 +927,7 @@ async function sendWidgetMessage(message) {
       })
     });
     const data = await readJsonSafe(response);
+    await keepNaturalPace(startedAt);
     pendingMessage.remove();
     const detectedService = detectClientService(message, widgetDocumentContext);
     const answer = response.ok ? data.answer : buildClientFallbackAnswer(detectedService, message, widgetDocumentContext);
@@ -920,6 +937,7 @@ async function sendWidgetMessage(message) {
     }
     widgetHistory.push({ role: "assistant", content: answer });
   } catch {
+    await keepNaturalPace(startedAt);
     pendingMessage.remove();
     const detectedService = detectClientService(message, widgetDocumentContext);
     const answer = buildClientFallbackAnswer(detectedService, message, widgetDocumentContext);

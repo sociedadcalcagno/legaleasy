@@ -419,69 +419,69 @@ function extractConversationFacts(message, history = []) {
 function buildLaborConversationalAnswer(text, facts, shouldEscalate) {
   if (facts.asksHarassment) {
     return [
-      "Entiendo. Si lo que describes puede ser acoso, hostigamiento o violencia en el trabajo, no conviene minimizarlo ni tratarlo como un simple conflicto interno.",
-      "En simple, hay que ordenar qué ocurrió, cuándo, quién participó, si hay testigos, mensajes, correos o denuncias previas, y qué medidas tomó la empresa. En Chile existe regulación específica sobre prevención e investigación de estas situaciones, incluida la Ley Karin.",
-      "¿Lo que ocurrió fue un hecho puntual o una conducta repetida en el tiempo?"
+      "Ya, esto no lo tomaría a la ligera. Si hay acoso, hostigamiento, maltrato o violencia en el trabajo, no es solo un 'problema de ambiente'. Puede tener consecuencias legales y la empresa tiene deberes frente a eso.",
+      "Lo importante ahora es ordenar bien la historia: qué pasó, desde cuándo, quiénes estuvieron, si hay mensajes, correos, testigos o denuncias internas, y qué hizo la empresa cuando se enteró. En Chile esto se mira también bajo las reglas de prevención e investigación laboral, incluida la Ley Karin.",
+      "Cuéntame una cosa para ubicarlo mejor: ¿fue algo puntual o viene pasando hace tiempo?"
     ].join("\n\n");
   }
 
   if (facts.asksNotSign) {
     return [
-      "Si no firmas el finiquito, normalmente no significa que pierdas automáticamente tus derechos. Lo importante es no firmar algo que no entiendes o con montos que no te cuadran.",
-      "En simple: firmar puede cerrar o dificultar discusiones posteriores si no dejas observaciones o reservas cuando corresponde. Por eso, antes de firmar conviene revisar causal, fecha de término, sueldo base, vacaciones, indemnizaciones, descuentos y cotizaciones.",
-      "¿Tienes el finiquito con los montos o solo te dijeron que debes ir a firmarlo?"
+      "No firmar de inmediato no significa, por sí solo, que pierdas todos tus derechos. De hecho, si algo no te cuadra, es razonable parar un momento antes de firmar conforme.",
+      "El punto delicado es que el finiquito puede cerrar discusiones si se firma sin observar nada. Por eso conviene mirar la causal, la fecha de término, sueldo, vacaciones, indemnizaciones, descuentos y cotizaciones. Si hay dudas reales, a veces corresponde dejar reserva u observación, pero no conviene escribir cualquier cosa al azar.",
+      "Para aterrizarlo: ¿ya tienes el finiquito con montos a la vista o solo te dijeron que tienes que ir a firmar?"
     ].join("\n\n");
   }
 
   if (facts.asksReserve) {
     return [
-      "La reserva de derechos es una forma de dejar constancia de que firmas o recibes algo, pero no estás necesariamente conforme con todo.",
-      "Dicho simple: puede servir cuando hay montos, causal, vacaciones, cotizaciones u otros puntos que quieres revisar después. No conviene escribirla al azar; debe relacionarse con lo que realmente estás observando.",
-      "¿Qué punto del finiquito te genera duda: monto, causal, vacaciones, descuentos o cotizaciones?"
+      "La reserva de derechos sirve para dejar claro que recibes o firmas algo, pero no necesariamente estás conforme con todo lo que dice el documento.",
+      "Te puede servir, por ejemplo, si dudas de la causal del despido, de los montos, vacaciones, descuentos o cotizaciones. Pero ojo: la reserva tiene que tener sentido con tu caso. No es una frase mágica que arregle todo si se pone mal o sin relación con el problema.",
+      "¿Qué es lo que te genera ruido del finiquito: la causal, el monto, vacaciones, descuentos o cotizaciones?"
     ].join("\n\n");
   }
 
   if (facts.asksSigned) {
     return [
-      "Si ya firmaste, todavía puede ser útil revisar qué firmaste exactamente, si dejaste reserva, cómo fue el pago y si había información correcta en el documento.",
-      "No puedo decirte solo con eso si se puede reclamar o no, porque depende del contenido del finiquito, la forma de firma, los montos y los antecedentes del término laboral.",
-      "¿Firmaste con alguna reserva u observación, o firmaste conforme sin agregar nada?"
+      "Si ya firmaste, no significa automáticamente que no haya nada que revisar. Pero cambia harto el análisis, porque hay que ver exactamente qué firmaste y cómo quedó redactado.",
+      "Miraría si firmaste conforme o con reserva, si el pago se hizo realmente, si los montos calzan, si las cotizaciones estaban bien y si la información del despido coincide con lo que pasó.",
+      "¿Recuerdas si firmaste con alguna reserva u observación, o fue firma conforme sin agregar nada?"
     ].join("\n\n");
   }
 
   if (facts.asksCotizaciones) {
     return [
-      "Las cotizaciones son relevantes porque el término de la relación laboral no se mira solo por la carta o el finiquito. También importa si AFP, salud y otros pagos previsionales están declarados y pagados según corresponda.",
-      "Si hay cotizaciones impagas o inconsistentes, conviene revisarlo antes de firmar conforme o aceptar montos sin observación.",
-      "¿Tu duda es porque viste una deuda de cotizaciones o porque no sabes cómo revisarlas?"
+      "Sí, las cotizaciones importan mucho. Un despido o finiquito no se mira solo por el papel que te entregan; también hay que revisar si AFP, salud y otros pagos previsionales están declarados y pagados como corresponde.",
+      "Si aparecen impagas o raras, yo no firmaría conforme sin antes revisar bien, porque puede cambiar la estrategia y las observaciones que conviene dejar.",
+      "¿Tú ya viste una deuda en AFP/salud, o todavía no sabes cómo revisar si están pagadas?"
     ].join("\n\n");
   }
 
   if (facts.asksAmount) {
     return [
-      "Para saber si un finiquito está bien calculado hay que mirar varios datos, no solo el total final.",
-      "En simple, revisaría: sueldo base y variables, fecha de ingreso y término, causal indicada, vacaciones pendientes, indemnizaciones si corresponden, descuentos, anticipos y cotizaciones. Si falta alguno de esos datos, el cálculo puede verse correcto pero estar incompleto.",
-      "¿Tienes a mano sueldo mensual, fecha de ingreso, fecha de término y causal de despido?"
+      "Para saber si el finiquito está bien calculado no basta con mirar el total final. A veces el número se ve ordenado, pero falta un concepto o hay una base mal tomada.",
+      "Yo partiría revisando sueldo base y variables, fecha de ingreso, fecha de término, causal indicada, vacaciones pendientes, indemnizaciones, descuentos, anticipos y cotizaciones. Con eso recién se puede empezar a ver si el monto hace sentido.",
+      "Si quieres, lo podemos ordenar paso a paso: dime sueldo mensual aproximado, fecha de ingreso, fecha de término y qué causal aparece en la carta."
     ].join("\n\n");
   }
 
   if (facts.asksDismissalLetter) {
     return [
-      "La carta de despido es importante porque normalmente ahí el empleador indica la causal y los hechos que justificarían el término del contrato.",
-      "En simple: no basta con que aparezca una causal. Hay que comparar lo que dice la carta con lo que realmente ocurrió y con los documentos disponibles. Sin esa carta es difícil evaluar bien el despido.",
-      "¿Te entregaron carta de despido por escrito, y qué causal menciona?"
+      "La carta de despido es clave, porque ahí el empleador debería decir la causal y los hechos concretos que justificarían el término.",
+      "No basta con que diga una causal bonita o genérica. Hay que comparar lo que la carta afirma con lo que realmente pasó, las fechas, tus funciones, liquidaciones, mensajes y cualquier antecedente que tengas.",
+      "Si puedes, copia acá la causal o una parte de la carta. Con eso te puedo ayudar a leerla con más calma."
     ].join("\n\n");
   }
 
   if (facts.hasFiniquito || /finiquito|despido|desped|desepd/.test(text)) {
     return [
-      "Entiendo. Si hay despido o finiquito, conviene avanzar con cuidado porque muchas veces el problema está en los detalles: causal, montos, vacaciones, descuentos o cotizaciones.",
+      "Te entiendo. En despidos y finiquitos conviene ir con calma, porque muchas veces el problema no está en una sola frase, sino en los detalles: causal, montos, vacaciones, descuentos o cotizaciones.",
       facts.mustSignSoon
-        ? "Si debes firmar pronto, no conviene hacerlo apurado. Primero revisaría carta de despido, contrato, últimas liquidaciones y el borrador del finiquito."
-        : "Lo primero es ordenar carta de despido, contrato, liquidaciones, fecha de ingreso, fecha de término y finiquito si ya existe.",
+        ? "Si te están apurando para firmar, bajaría un cambio. Primero revisaría carta de despido, contrato, últimas liquidaciones y el borrador del finiquito."
+        : "Primero ordenaría carta de despido, contrato, liquidaciones, fecha de ingreso, fecha de término y el finiquito si ya existe.",
       facts.isWorker || !facts.isEmployer
-        ? "¿Tienes ya la carta de despido y el finiquito, o solo te avisaron verbalmente?"
-        : "¿La consulta es desde la empresa o desde la posición del trabajador?"
+        ? "¿Qué tienes en la mano ahora: carta, finiquito, liquidaciones, o solo aviso verbal?"
+        : "¿Me hablas desde la empresa o desde la posición del trabajador?"
     ].join("\n\n");
   }
 
@@ -517,17 +517,17 @@ function buildConceptAnswer(message) {
 
   if (/finiquito/.test(text)) {
     return [
-      "Un finiquito es el documento que normalmente cierra una relación laboral cuando termina el contrato de trabajo.",
-      "En simple: deja por escrito por qué terminó la relación, qué montos se pagan y si el trabajador queda conforme o deja alguna reserva. Por eso no conviene firmarlo sin revisar antes sueldo, vacaciones, indemnizaciones, descuentos, cotizaciones y causal de término.",
-      "Si tienes uno a la vista, puedo ayudarte a ordenar qué puntos mirar primero. ¿Ya tienes el finiquito o solo te avisaron que debes firmarlo?"
+      "Un finiquito es el documento que normalmente se firma cuando termina una relación laboral. Es como el cierre formal entre trabajador y empleador.",
+      "Ahí debería aparecer por qué terminó el trabajo, qué montos se pagan, si hay vacaciones pendientes, indemnizaciones, descuentos, cotizaciones y si la persona firma conforme o deja alguna observación. Por eso no conviene mirarlo a la rápida, menos si te están apurando.",
+      "Si tienes uno a mano, podemos revisarlo por partes. ¿Ya lo tienes con montos o todavía solo te dijeron que debes firmarlo?"
     ].join("\n\n");
   }
 
   if (/despido|desped|desepd/.test(text)) {
     return [
-      "Estar despedido significa que el empleador puso término al contrato de trabajo.",
-      "En simple: no basta con que te digan verbalmente que no sigues. Lo importante es revisar si existe carta de despido, qué causal indica, qué hechos menciona, desde qué fecha rige y si luego te entregan finiquito. La causal debe mirarse contra los hechos y documentos disponibles; no se puede decir automáticamente si está bien o mal aplicada sin revisar eso.",
-      "¿Te entregaron carta de despido o solo te lo comunicaron de palabra?"
+      "Estar despedido significa que el empleador puso término a tu contrato de trabajo.",
+      "Pero lo importante no es solo que te digan 'estás despedido'. Hay que ver si te entregaron carta, qué causal pusieron, qué hechos describen, desde qué fecha corre el despido y qué pasa después con el finiquito. Esa carta manda mucho para entender el caso.",
+      "¿Te lo dijeron de palabra o ya tienes una carta de despido?"
     ].join("\n\n");
   }
 
