@@ -46,7 +46,7 @@ exports.handler = async (event) => {
   try {
     const body = parseBody(event.body);
     const message = cleanText(body.message, 5000);
-    const documentContext = normalizeDocument(body.document);
+    const documentContext = enrichDocumentContext(normalizeDocument(body.document));
     const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
     const service = body.service === "auto" ? detectService(message, documentContext, history) : cleanText(body.service, 80);
 
@@ -174,6 +174,7 @@ async function tryOpenAi(service, message, documentContext, history, context) {
 }
 
 function buildMessages(service, message, documentContext, history, context = "") {
+  const documentTypeInstruction = buildDocumentTypeInstruction(documentContext);
   const documentText = documentContext?.text
     ? `Documento adjunto (${documentContext.name}): ${documentContext.text}`
     : documentContext?.name
@@ -195,6 +196,7 @@ function buildMessages(service, message, documentContext, history, context = "")
         "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
         "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
         "Usa español chileno neutro, cercano y claro.",
+        documentTypeInstruction,
         context ? `Contexto LegalEasy:
 ${context}` : "",
         documentText
@@ -220,6 +222,7 @@ function buildPromptText(service, message, documentContext, history, context) {
     .map((item) => `${item.role === "assistant" ? "Asistente" : "Usuario"}: ${cleanText(item.content, 2500)}`)
     .join("\n");
   const isImage = isImageDocument(documentContext);
+  const documentTypeInstruction = buildDocumentTypeInstruction(documentContext);
   const documentText = documentContext?.text
     ? `Documento adjunto (${documentContext.name}): ${documentContext.text}`
     : documentContext?.name
@@ -241,12 +244,34 @@ function buildPromptText(service, message, documentContext, history, context) {
     "Primero reconoce la situación de forma natural; luego explica qué revisar; termina con una sola pregunta concreta.",
     "Si el usuario pregunta algo fuera del ámbito legal o sin contexto, redirígelo amablemente a explicar su caso legal concreto.",
     "No menciones leyes, artículos, instituciones, acciones judiciales específicas ni plazos si el usuario no entregó esos datos.",
+    documentTypeInstruction,
     `Contexto LegalEasy:\n${context}`,
     historyText ? `Conversación previa:\n${historyText}` : "",
     documentText,
     `Consulta del usuario: ${message}`,
     "Respuesta:"
   ].filter(Boolean).join("\n\n");
+}
+
+function buildDocumentTypeInstruction(documentContext) {
+  if (!documentContext?.name) {
+    return "";
+  }
+
+  const text = normalizeLoose(`${documentContext.name} ${documentContext.text || ""}`);
+  if (/contrato individual|contrato de trabajo|contrato trabajo|individual trabajo/.test(text)) {
+    return "Documento actual detectado: contrato individual de trabajo. No lo confundas con carta de despido ni finiquito aunque la conversación previa mencione despido, carta o finiquito. Primero identifica que es un contrato laboral y luego orienta sobre cláusulas laborales.";
+  }
+
+  if (/finiquito/.test(text)) {
+    return "Documento actual detectado: finiquito laboral. No lo confundas con carta de despido ni contrato.";
+  }
+
+  if (/carta de despido|carta despido/.test(text)) {
+    return "Documento actual detectado: carta de despido. No lo confundas con finiquito ni contrato.";
+  }
+
+  return "";
 }
 
 function tokenize(value) {
@@ -366,6 +391,11 @@ function buildConversationalAnswer(service, message, documentContext, history = 
   const text = normalizeLoose(message);
   const facts = extractConversationFacts(message, history);
 
+  const documentAnswer = buildDocumentAwareAnswer(message, documentContext);
+  if (documentAnswer) {
+    return documentAnswer;
+  }
+
   const socialAnswer = buildSocialAnswer(message, history);
   if (socialAnswer) {
     return socialAnswer;
@@ -392,6 +422,38 @@ function buildConversationalAnswer(service, message, documentContext, history = 
     if (contractAnswer) {
       return contractAnswer;
     }
+  }
+
+  return null;
+}
+
+function buildDocumentAwareAnswer(message, documentContext) {
+  if (!documentContext?.name) {
+    return null;
+  }
+
+  const text = normalizeLoose(`${message} ${documentContext.name} ${documentContext.text || ""}`);
+  const asksReview = /revisa|analiza|que dice|documento|archivo|pdf|esto|subi|subí|revísalo|revisalo/.test(text);
+  if (!asksReview) {
+    return null;
+  }
+
+  if (/contrato individual|contrato de trabajo|contrato trabajo|individual trabajo/.test(text)) {
+    return [
+      "Veo que subiste un contrato individual de trabajo. No lo trataría como carta de despido ni como finiquito: es otro documento.",
+      documentContext.text
+        ? "Con el texto disponible, lo primero es revisar datos de las partes, cargo o funciones, jornada, remuneración, fecha de inicio, lugar de trabajo, duración del contrato y causales o reglas de término."
+        : "No tengo texto interno confiable extraído de ese PDF en esta vista, así que no sería serio inventar cláusulas. Pero por el nombre del archivo, lo correcto es partir revisándolo como contrato laboral.",
+      "Si quieres, dime qué te preocupa del contrato: sueldo, horario, funciones, plazo, término, descuentos o alguna cláusula específica."
+    ].join("\n\n");
+  }
+
+  if (/finiquito/.test(text)) {
+    return null;
+  }
+
+  if (/carta de despido|carta despido/.test(text)) {
+    return null;
   }
 
   return null;
@@ -681,6 +743,64 @@ function normalizeDocument(document) {
   };
 }
 
+function enrichDocumentContext(documentContext) {
+  if (!documentContext || documentContext.text || !documentContext.fileBase64) {
+    return documentContext;
+  }
+
+  try {
+    const buffer = Buffer.from(documentContext.fileBase64, "base64");
+    let extractedText = "";
+
+    if (documentContext.extension === "pdf") {
+      extractedText = extractTextFromPdfBuffer(buffer);
+    } else if (documentContext.extension === "docx") {
+      extractedText = extractTextFromDocxBuffer(buffer);
+    }
+
+    if (!extractedText) {
+      return documentContext;
+    }
+
+    return {
+      ...documentContext,
+      text: extractedText.slice(0, 12000),
+      readable: true
+    };
+  } catch {
+    return documentContext;
+  }
+}
+
+function extractTextFromPdfBuffer(buffer) {
+  const raw = buffer.toString("latin1");
+  const matches = raw.match(/\((?:\\.|[^\\)]){8,}\)/g) || [];
+  const text = matches
+    .map((item) => item.slice(1, -1))
+    .map((item) => item.replace(/\\\)/g, ")").replace(/\\\(/g, "(").replace(/\\n/g, " ").replace(/\\r/g, " "))
+    .join(" ")
+    .replace(/[^\x20-\x7E\u00C0-\u017F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text.length > 80 ? text : "";
+}
+
+function extractTextFromDocxBuffer(buffer) {
+  const raw = buffer.toString("utf8");
+  const matches = raw.match(/<w:t[^>]*>(.*?)<\/w:t>/g) || [];
+  const text = matches
+    .map((item) => item.replace(/<[^>]+>/g, ""))
+    .join(" ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text.length > 40 ? text : "";
+}
+
 function isImageDocument(documentContext) {
   return ["jpg", "jpeg", "png", "webp"].includes(String(documentContext?.extension || "").toLowerCase()) ||
     /^image\//i.test(String(documentContext?.mimeType || ""));
@@ -707,8 +827,13 @@ function buildGeminiImagePart(documentContext) {
 }
 
 function detectService(message, documentContext, history = []) {
+  const documentText = `${documentContext?.name || ""} ${documentContext?.text || ""}`.toLowerCase();
+  if (/contrato individual|contrato de trabajo|contrato[_\s-]+individual[_\s-]+trabajo|individual[_\s-]+trabajo/.test(documentText)) {
+    return "laboral";
+  }
+
   const historyText = history.map((item) => item?.content || "").join(" ");
-  const text = `${message || ""} ${historyText} ${documentContext?.name || ""} ${documentContext?.text || ""}`.toLowerCase();
+  const text = `${message || ""} ${documentText} ${historyText}`.toLowerCase();
   const checks = [
     ["laboral", ["despido", "despid", "desped", "desepd", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia", "carta de despido", "necesidades de la empresa", "causal"]],
     ["revision-contratos", ["contrato", "cláusula", "clausula", "firmar", "arriendo", "multa", "penalidad", "renovación", "renovacion"]],
