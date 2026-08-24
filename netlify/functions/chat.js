@@ -58,12 +58,9 @@ exports.handler = async (event) => {
       return json(400, { error: "Servicio no válido" });
     }
 
-    if (/^(hola|buenas|buenos dias|buenos días|buenas tardes|buenas noches)\b/i.test(message)) {
-      return json(200, {
-        answer: "Hola. Cuéntame brevemente qué necesitas revisar: contrato, despido/finiquito, reclamo, deuda, empresa, marca o documento. Si tienes un plazo o documento formal, dime cuál es para priorizarlo.",
-        service,
-        provider: "local-greeting"
-      });
+    const socialAnswer = buildSocialAnswer(message, history);
+    if (socialAnswer) {
+      return json(200, { answer: socialAnswer, service, provider: "local-engine" });
     }
 
     const shouldEscalate = detectEscalation(`${message} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
@@ -369,6 +366,11 @@ function buildConversationalAnswer(service, message, documentContext, history = 
   const text = normalizeLoose(message);
   const facts = extractConversationFacts(message, history);
 
+  const socialAnswer = buildSocialAnswer(message, history);
+  if (socialAnswer) {
+    return socialAnswer;
+  }
+
   const conceptAnswer = buildConceptAnswer(message);
   if (conceptAnswer) {
     return conceptAnswer;
@@ -390,6 +392,51 @@ function buildConversationalAnswer(service, message, documentContext, history = 
     if (contractAnswer) {
       return contractAnswer;
     }
+  }
+
+  return null;
+}
+
+function buildSocialAnswer(message, history = []) {
+  const text = normalizeLoose(message);
+  const hasPriorCase = /despido|desped|finiquito|contrato|carta|multa|deuda|acoso|cotizacion|demanda|reclamo|empresa|marca/.test(
+    normalizeLoose(history.map((item) => item?.content || "").join(" "))
+  );
+
+  if (/^(hola|holi|buenas|buen dia|buenos dias|buenas tardes|buenas noches|alo|aloo|hello|hi)(\s|$)/.test(text) && text.split(" ").length <= 5) {
+    if (/buenos dias|buen dia/.test(text)) {
+      return hasPriorCase
+        ? "Buenos días. Sigamos con calma: cuéntame qué pasó después o qué punto te quedó dando vueltas."
+        : "Buenos días. Cuéntame nomás qué pasó o qué duda tienes, y lo vamos ordenando de a poco.";
+    }
+
+    if (/buenas tardes/.test(text)) {
+      return hasPriorCase
+        ? "Buenas tardes. Sigamos desde donde quedamos: dime qué parte quieres aclarar ahora."
+        : "Buenas tardes. Cuéntame qué necesitas revisar y te voy guiando paso a paso.";
+    }
+
+    if (/buenas noches/.test(text)) {
+      return hasPriorCase
+        ? "Buenas noches. Sigamos tranquilos: dime qué punto quieres ver ahora."
+        : "Buenas noches. Cuéntame qué pasó o qué documento tienes, y lo revisamos con calma.";
+    }
+
+    return hasPriorCase
+      ? "Hola. Sigamos con eso: dime qué te preocupa ahora y lo ordenamos."
+      : "Hola. Cuéntame qué pasó o qué duda legal tienes, y lo vemos en simple.";
+  }
+
+  if (/^(gracias|muchas gracias|vale|ok gracias|perfecto gracias|bkn gracias)(\s|$)/.test(text) && text.split(" ").length <= 6) {
+    return "De nada. Si quieres, seguimos con el siguiente punto: puedes contarme qué documento tienes, qué te están pidiendo firmar o qué plazo te preocupa.";
+  }
+
+  if (/^(chao|chau|adios|adiós|hasta luego|nos vemos)(\s|$)/.test(text) && text.split(" ").length <= 5) {
+    return "Que te vaya bien. Si aparece una carta, finiquito, contrato o plazo, vuelve y lo revisamos con calma.";
+  }
+
+  if (/estoy preocupado|estoy preocupada|tengo miedo|me da miedo|estoy nervioso|estoy nerviosa|no se que hacer|no sé qué hacer/.test(text)) {
+    return "Te entiendo. Cuando hay documentos, plazos o presión para firmar, es normal sentirse así. Partamos por lo más urgente: ¿qué pasó y qué documento o plazo tienes encima ahora?";
   }
 
   return null;
