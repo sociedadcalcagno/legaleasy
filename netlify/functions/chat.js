@@ -66,8 +66,13 @@ exports.handler = async (event) => {
       });
     }
 
-    const context = buildKnowledgeContext(service, message);
     const shouldEscalate = detectEscalation(`${message} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
+    const conversationalAnswer = buildConversationalAnswer(service, message, documentContext, history, shouldEscalate);
+    if (conversationalAnswer) {
+      return json(200, { answer: conversationalAnswer, service, provider: "local-engine" });
+    }
+
+    const context = buildKnowledgeContext(service, message);
     const promptText = buildPromptText(service, message, documentContext, history, context);
     const geminiAnswer = normalizeAssistantAnswer(await tryGemini(promptText, documentContext));
     if (geminiAnswer) {
@@ -360,6 +365,149 @@ function buildLocalFallback(service, message, documentContext, history = [], sho
   ].join("\n\n");
 }
 
+function buildConversationalAnswer(service, message, documentContext, history = [], shouldEscalate = false) {
+  const text = normalizeLoose(message);
+  const facts = extractConversationFacts(message, history);
+
+  const conceptAnswer = buildConceptAnswer(message);
+  if (conceptAnswer) {
+    return conceptAnswer;
+  }
+
+  if (documentContext?.name && /revisa|analiza|que dice|qué dice|documento|imagen|foto|archivo/.test(text)) {
+    return null;
+  }
+
+  if (service === "laboral" || facts.area === "laboral") {
+    const laborAnswer = buildLaborConversationalAnswer(text, facts, shouldEscalate);
+    if (laborAnswer) {
+      return laborAnswer;
+    }
+  }
+
+  if (service === "revision-contratos" || facts.area === "contratos") {
+    const contractAnswer = buildContractConversationalAnswer(text, facts, shouldEscalate);
+    if (contractAnswer) {
+      return contractAnswer;
+    }
+  }
+
+  return null;
+}
+
+function extractConversationFacts(message, history = []) {
+  const combined = normalizeLoose(`${history.map((item) => item?.content || "").join(" ")} ${message || ""}`);
+  return {
+    area: /despido|desped|desepd|finiquito|trabajador|empleador|sueldo|cotizacion|laboral|renuncia/.test(combined) ? "laboral" : /contrato|arriendo|multa|clausula|penalidad/.test(combined) ? "contratos" : "general",
+    isWorker: /soy trabajador|trabajador|me despid|me echaron|mi empleador|mi jefe|trabajo en/.test(combined),
+    isEmployer: /soy empleador|tengo trabajadores|mi trabajador|empresa despid/.test(combined),
+    hasFiniquito: /finiquito/.test(combined),
+    hasDismissalLetter: /carta de despido|carta despido|me entregaron carta|causal/.test(combined),
+    mustSignSoon: /mañana|manana|hoy|ahora|urgente|firmar pronto|firmarlo mañana|firmarlo manana/.test(combined),
+    alreadySigned: /ya firme|ya firmé|firme el finiquito|firmé el finiquito/.test(combined),
+    asksConsequence: /que pasa si|qué pasa si|y si|puedo|debo|conviene|es malo|me perjudica/.test(normalizeLoose(message)),
+    asksAmount: /monto|calculo|cálculo|calcular|indemnizacion|indemnización|vacaciones|sueldo|cotizaciones|pago|me deben/.test(normalizeLoose(message)),
+    asksReserve: /reserva|reservar derechos|derechos/.test(normalizeLoose(message)),
+    asksNotSign: /no firmo|no quiero firmar|si no firmo|negarme a firmar|rechazo firmar/.test(normalizeLoose(message)),
+    asksSigned: /ya firme|ya firmé|despues de firmar|después de firmar/.test(normalizeLoose(message)),
+    asksCotizaciones: /cotizacion|cotización|cotizaciones|afp|salud|fonasa|isapre/.test(normalizeLoose(message)),
+    asksDismissalLetter: /carta|causal|motivo del despido|por que me despidieron|por qué me despidieron/.test(normalizeLoose(message)),
+    asksHarassment: /acos|hostigamiento|ley karin|maltrato|violencia/.test(combined)
+  };
+}
+
+function buildLaborConversationalAnswer(text, facts, shouldEscalate) {
+  if (facts.asksHarassment) {
+    return [
+      "Entiendo. Si lo que describes puede ser acoso, hostigamiento o violencia en el trabajo, no conviene minimizarlo ni tratarlo como un simple conflicto interno.",
+      "En simple, hay que ordenar qué ocurrió, cuándo, quién participó, si hay testigos, mensajes, correos o denuncias previas, y qué medidas tomó la empresa. En Chile existe regulación específica sobre prevención e investigación de estas situaciones, incluida la Ley Karin.",
+      "¿Lo que ocurrió fue un hecho puntual o una conducta repetida en el tiempo?"
+    ].join("\n\n");
+  }
+
+  if (facts.asksNotSign) {
+    return [
+      "Si no firmas el finiquito, normalmente no significa que pierdas automáticamente tus derechos. Lo importante es no firmar algo que no entiendes o con montos que no te cuadran.",
+      "En simple: firmar puede cerrar o dificultar discusiones posteriores si no dejas observaciones o reservas cuando corresponde. Por eso, antes de firmar conviene revisar causal, fecha de término, sueldo base, vacaciones, indemnizaciones, descuentos y cotizaciones.",
+      "¿Tienes el finiquito con los montos o solo te dijeron que debes ir a firmarlo?"
+    ].join("\n\n");
+  }
+
+  if (facts.asksReserve) {
+    return [
+      "La reserva de derechos es una forma de dejar constancia de que firmas o recibes algo, pero no estás necesariamente conforme con todo.",
+      "Dicho simple: puede servir cuando hay montos, causal, vacaciones, cotizaciones u otros puntos que quieres revisar después. No conviene escribirla al azar; debe relacionarse con lo que realmente estás observando.",
+      "¿Qué punto del finiquito te genera duda: monto, causal, vacaciones, descuentos o cotizaciones?"
+    ].join("\n\n");
+  }
+
+  if (facts.asksSigned) {
+    return [
+      "Si ya firmaste, todavía puede ser útil revisar qué firmaste exactamente, si dejaste reserva, cómo fue el pago y si había información correcta en el documento.",
+      "No puedo decirte solo con eso si se puede reclamar o no, porque depende del contenido del finiquito, la forma de firma, los montos y los antecedentes del término laboral.",
+      "¿Firmaste con alguna reserva u observación, o firmaste conforme sin agregar nada?"
+    ].join("\n\n");
+  }
+
+  if (facts.asksCotizaciones) {
+    return [
+      "Las cotizaciones son relevantes porque el término de la relación laboral no se mira solo por la carta o el finiquito. También importa si AFP, salud y otros pagos previsionales están declarados y pagados según corresponda.",
+      "Si hay cotizaciones impagas o inconsistentes, conviene revisarlo antes de firmar conforme o aceptar montos sin observación.",
+      "¿Tu duda es porque viste una deuda de cotizaciones o porque no sabes cómo revisarlas?"
+    ].join("\n\n");
+  }
+
+  if (facts.asksAmount) {
+    return [
+      "Para saber si un finiquito está bien calculado hay que mirar varios datos, no solo el total final.",
+      "En simple, revisaría: sueldo base y variables, fecha de ingreso y término, causal indicada, vacaciones pendientes, indemnizaciones si corresponden, descuentos, anticipos y cotizaciones. Si falta alguno de esos datos, el cálculo puede verse correcto pero estar incompleto.",
+      "¿Tienes a mano sueldo mensual, fecha de ingreso, fecha de término y causal de despido?"
+    ].join("\n\n");
+  }
+
+  if (facts.asksDismissalLetter) {
+    return [
+      "La carta de despido es importante porque normalmente ahí el empleador indica la causal y los hechos que justificarían el término del contrato.",
+      "En simple: no basta con que aparezca una causal. Hay que comparar lo que dice la carta con lo que realmente ocurrió y con los documentos disponibles. Sin esa carta es difícil evaluar bien el despido.",
+      "¿Te entregaron carta de despido por escrito, y qué causal menciona?"
+    ].join("\n\n");
+  }
+
+  if (facts.hasFiniquito || /finiquito|despido|desped|desepd/.test(text)) {
+    return [
+      "Entiendo. Si hay despido o finiquito, conviene avanzar con cuidado porque muchas veces el problema está en los detalles: causal, montos, vacaciones, descuentos o cotizaciones.",
+      facts.mustSignSoon
+        ? "Si debes firmar pronto, no conviene hacerlo apurado. Primero revisaría carta de despido, contrato, últimas liquidaciones y el borrador del finiquito."
+        : "Lo primero es ordenar carta de despido, contrato, liquidaciones, fecha de ingreso, fecha de término y finiquito si ya existe.",
+      facts.isWorker || !facts.isEmployer
+        ? "¿Tienes ya la carta de despido y el finiquito, o solo te avisaron verbalmente?"
+        : "¿La consulta es desde la empresa o desde la posición del trabajador?"
+    ].join("\n\n");
+  }
+
+  return null;
+}
+
+function buildContractConversationalAnswer(text, facts, shouldEscalate) {
+  if (/renovacion|renovación|automatic/.test(text)) {
+    return [
+      "La renovación automática puede ser delicada porque a veces mantiene vigente el contrato aunque una parte pensaba que terminaba solo.",
+      "En simple: hay que revisar duración, aviso previo, forma de terminar, multas por término anticipado y si exige enviar una comunicación dentro de cierto plazo.",
+      "¿El contrato ya está firmado o lo estás revisando antes de firmar?"
+    ].join("\n\n");
+  }
+
+  if (/multa|penalidad|clausula penal/.test(text)) {
+    return [
+      "Una multa en un contrato no se revisa solo por el monto. Lo clave es qué hecho la activa y si la redacción es clara.",
+      "Miraría especialmente: obligación incumplida, plazo, aviso previo, posibilidad de corregir, proporcionalidad del monto y relación con el valor total del contrato.",
+      "¿La multa aparece por atraso, término anticipado, no pago u otra obligación?"
+    ].join("\n\n");
+  }
+
+  return null;
+}
+
 function buildConceptAnswer(message) {
   const text = normalizeLoose(message);
   const asksMeaning = /\b(que es|q es|que significa|significa|defin(e|icion)|explicame|explícame|en simple)\b/.test(text);
@@ -481,7 +629,7 @@ function detectService(message, documentContext, history = []) {
   const historyText = history.map((item) => item?.content || "").join(" ");
   const text = `${message || ""} ${historyText} ${documentContext?.name || ""} ${documentContext?.text || ""}`.toLowerCase();
   const checks = [
-    ["laboral", ["despido", "desped", "desepd", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia"]],
+    ["laboral", ["despido", "despid", "desped", "desepd", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia", "carta de despido", "necesidades de la empresa", "causal"]],
     ["revision-contratos", ["contrato", "cláusula", "clausula", "firmar", "arriendo", "multa", "penalidad", "renovación", "renovacion"]],
     ["reclamaciones-defensa", ["reclamo", "demanda", "notificación", "notificacion", "deuda", "plazo", "defensa"]],
     ["constitucion-empresas", ["empresa", "sociedad", "constituir", "emprendimiento", "socio"]],
