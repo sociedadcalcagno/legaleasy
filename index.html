@@ -297,10 +297,10 @@
 
             <label for="document-upload">Subir documento para analizar</label>
             <div class="upload-box">
-              <input id="document-upload" type="file" accept=".txt,.md,.csv,.json,.html,.htm">
+              <input id="document-upload" type="file" accept=".txt,.md,.csv,.json,.html,.htm,.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
               <div>
                 <strong>Adjunta texto, contrato o minuta</strong>
-                <span>Compatible para lectura directa: TXT, MD, CSV, JSON, HTML. Si subes PDF/DOCX, el agente te guiará con una revisión preliminar.</span>
+                <span>Compatible para lectura directa: TXT, MD, CSV, JSON, HTML. También puedes adjuntar PDF, DOCX, JPG o PNG para una revisión preliminar o derivación.</span>
               </div>
             </div>
             <div class="document-preview" id="document-preview">
@@ -442,7 +442,7 @@
     <form class="agent-widget-form" id="agent-widget-form">
       <div class="agent-widget-tools">
         <label class="agent-widget-upload">
-          <input id="agent-widget-file" type="file" accept=".txt,.md,.csv,.json,.html,.htm,.pdf,.doc,.docx">
+          <input id="agent-widget-file" type="file" accept=".txt,.md,.csv,.json,.html,.htm,.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
           <span>Subir documento</span>
         </label>
         <button class="agent-widget-derive" id="agent-widget-derive" type="button">Derivar a asistente</button>

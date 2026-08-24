@@ -621,7 +621,7 @@ documentUpload.addEventListener("change", async () => {
   }
 
   const allowedExtensions = ["txt", "md", "csv", "json", "html", "htm"];
-  const uploadExtensions = ["pdf", "doc", "docx"];
+  const uploadExtensions = ["pdf", "doc", "docx", "jpg", "jpeg", "png", "webp"];
   const extension = file.name.split(".").pop().toLowerCase();
 
   if (uploadExtensions.includes(extension)) {
@@ -634,16 +634,17 @@ documentUpload.addEventListener("change", async () => {
       extension,
       readable: false
     };
-    documentPreview.innerHTML = `<strong>${file.name}</strong><span>Documento recibido. Intentare extraer texto desde el servidor al enviar tu pregunta.</span>`;
+    const isImage = ["jpg", "jpeg", "png", "webp"].includes(extension);
+    documentPreview.innerHTML = `<strong>${file.name}</strong><span>${isImage ? "Imagen recibida. Describe qué necesitas revisar de la imagen para derivarla o analizarla preliminarmente." : "Documento recibido. Intentare extraer texto desde el servidor al enviar tu pregunta."}</span>`;
     setAssistantStatus("Documento recibido");
-    addChatMessage("assistant", `Recibi ${file.name}. Escribe tu pregunta y revisare el documento con el mejor metodo disponible localmente.`);
+    addChatMessage("assistant", `Recibi ${file.name}. ${isImage ? "Por ahora puedo registrar la imagen y guiarte con la descripcion que escribas; si contiene texto importante, copialo en la consulta." : "Escribe tu pregunta y revisare el documento con el mejor metodo disponible localmente."}`);
     return;
   }
 
   if (!allowedExtensions.includes(extension)) {
     documentContext = null;
-    documentPreview.innerHTML = `<strong>${file.name}</strong><span>Formato no soportado por ahora. Usa PDF, DOCX o texto plano.</span>`;
-    addChatMessage("assistant", "Ese formato no esta soportado todavia. Puedes subir PDF, DOCX o un archivo TXT con el contenido del documento.");
+    documentPreview.innerHTML = `<strong>${file.name}</strong><span>Formato no soportado por ahora. Usa PDF, DOCX, JPG, PNG o texto plano.</span>`;
+    addChatMessage("assistant", "Ese formato no esta soportado todavia. Puedes subir PDF, DOCX, JPG, PNG o un archivo TXT con el contenido del documento.");
     return;
   }
 
@@ -928,7 +929,7 @@ async function sendWidgetMessage(message) {
 async function loadWidgetDocument(file) {
   const extension = file.name.split(".").pop().toLowerCase();
   const textExtensions = ["txt", "md", "csv", "json", "html", "htm"];
-  const binaryExtensions = ["pdf", "doc", "docx"];
+  const binaryExtensions = ["pdf", "doc", "docx", "jpg", "jpeg", "png", "webp"];
 
   if (textExtensions.includes(extension)) {
     const text = await file.text();
@@ -955,13 +956,14 @@ async function loadWidgetDocument(file) {
       extension,
       readable: false
     };
-    agentWidgetFileStatus.textContent = `${file.name} recibido. Intentare extraer texto al consultar.`;
-    addWidgetMessage("assistant", `Recibi ${file.name}. Escribe que quieres revisar y detectare el area legal automaticamente.`);
+    const isImage = ["jpg", "jpeg", "png", "webp"].includes(extension);
+    agentWidgetFileStatus.textContent = `${file.name} recibido. ${isImage ? "Imagen lista para derivar o comentar." : "Intentare extraer texto al consultar."}`;
+    addWidgetMessage("assistant", `Recibi ${file.name}. ${isImage ? "Si contiene texto relevante, escribelo o resume que necesitas revisar." : "Escribe que quieres revisar y detectare el area legal automaticamente."}`);
     return;
   }
 
   widgetDocumentContext = null;
-  agentWidgetFileStatus.textContent = "Formato no soportado. Usa PDF, DOCX o texto plano.";
+  agentWidgetFileStatus.textContent = "Formato no soportado. Usa PDF, DOCX, JPG, PNG o texto plano.";
 }
 
 agentWidgetFile.addEventListener("change", async () => {
