@@ -459,11 +459,37 @@ function extractConversationFacts(message, history = []) {
     asksSigned: /ya firme|ya firmé|despues de firmar|después de firmar/.test(normalizeLoose(message)),
     asksCotizaciones: /cotizacion|cotización|cotizaciones|afp|salud|fonasa|isapre/.test(normalizeLoose(message)),
     asksDismissalLetter: /carta|causal|motivo del despido|por que me despidieron|por qué me despidieron/.test(normalizeLoose(message)),
-    asksHarassment: /acos|hostigamiento|ley karin|maltrato|violencia/.test(combined)
+    asksHarassment: /acos|hostigamiento|ley karin|maltrato|violencia/.test(combined),
+    asksClarify: /no entiendo|no entendi|no entendí|explicame|explícame|mas simple|más simple|en simple|que significa|qué significa|como asi|cómo así/.test(normalizeLoose(message)),
+    isShortFollowUp: normalizeLoose(message).split(" ").filter(Boolean).length <= 4
   };
 }
 
 function buildLaborConversationalAnswer(text, facts, shouldEscalate) {
+  if (facts.isShortFollowUp && /liquidacion|liquidaciones|liquidación/.test(text)) {
+    return [
+      "La liquidación de sueldo es el papel donde aparece cómo se armó tu pago mensual: sueldo base, bonos, descuentos, cotizaciones y líquido a pagar.",
+      "Sirve para revisar el finiquito porque muchas indemnizaciones o pagos pendientes se calculan mirando lo que venías ganando. Si las liquidaciones están malas o incompletas, el finiquito también puede quedar mal calculado.",
+      "¿Tu duda es que no entiendes una liquidación específica o que no sabes si el finiquito usó bien esos montos?"
+    ].join("\n\n");
+  }
+
+  if (facts.isShortFollowUp && /finiquito/.test(text)) {
+    return [
+      "El finiquito es el documento de cierre cuando termina el trabajo.",
+      "Ahí debería decir cuánto te pagan y por qué conceptos: sueldo pendiente, vacaciones, indemnización si corresponde, descuentos, cotizaciones y otros montos. Lo delicado es firmarlo conforme sin revisar, porque después puede ser más difícil discutir algo que estaba mal.",
+      "¿Quieres que veamos qué significa cada parte del finiquito o si conviene firmarlo?"
+    ].join("\n\n");
+  }
+
+  if (facts.asksClarify) {
+    return [
+      "Sí, te explico más simple.",
+      "Cuando hablo de carta, finiquito y liquidaciones no es para tirarte una lista encima. Es porque cada papel responde una pregunta distinta: la carta dice por qué te despidieron, el finiquito dice cuánto te quieren pagar, y las liquidaciones ayudan a revisar si esos montos están bien calculados.",
+      "Si quieres partir por lo más básico, dime cuál de esos documentos tienes o cuál no entiendes, y lo vemos de a uno."
+    ].join("\n\n");
+  }
+
   if (facts.asksHarassment) {
     return [
       "Ya, esto no lo tomaría a la ligera. Si hay acoso, hostigamiento, maltrato o violencia en el trabajo, no es solo un 'problema de ambiente'. Puede tener consecuencias legales y la empresa tiene deberes frente a eso.",
@@ -520,7 +546,7 @@ function buildLaborConversationalAnswer(text, facts, shouldEscalate) {
     ].join("\n\n");
   }
 
-  if (facts.hasFiniquito || /finiquito|despido|desped|desepd/.test(text)) {
+  if ((facts.hasFiniquito || /finiquito|despido|desped|desepd/.test(text)) && !facts.isShortFollowUp) {
     return [
       "Te entiendo. En despidos y finiquitos conviene ir con calma, porque muchas veces el problema no está en una sola frase, sino en los detalles: causal, montos, vacaciones, descuentos o cotizaciones.",
       facts.mustSignSoon
@@ -529,6 +555,14 @@ function buildLaborConversationalAnswer(text, facts, shouldEscalate) {
       facts.isWorker || !facts.isEmployer
         ? "¿Qué tienes en la mano ahora: carta, finiquito, liquidaciones, o solo aviso verbal?"
         : "¿Me hablas desde la empresa o desde la posición del trabajador?"
+    ].join("\n\n");
+  }
+
+  if (facts.hasFiniquito || /finiquito|despido|desped|desepd/.test(text)) {
+    return [
+      "Ya, vamos más despacio.",
+      "No necesito que me digas todo junto. Partamos por una sola cosa: ¿tu duda ahora es entender la carta, revisar el monto del finiquito, saber si debes firmar, o ver cotizaciones?",
+      "Respóndeme con una de esas opciones y seguimos por ahí."
     ].join("\n\n");
   }
 
