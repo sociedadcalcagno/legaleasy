@@ -712,10 +712,10 @@ function buildSocialAnswer(message, history = []) {
 
 function extractConversationFacts(message, history = [], documentContext = null) {
   const currentScope = normalizeLoose(`${message || ""} ${documentContext?.name || ""} ${documentContext?.text || ""}`);
-  const hasCurrentTopic = /despido|desped|desepd|finiquito|contrato|carta|marca|sociedad|empresa|multa|deuda|reclamo|demanda|notificacion|cotizacion|acoso|trabajo|trabajador|empleador|firmar|firmo/.test(currentScope);
+  const hasCurrentTopic = /despido|despid|desped|desepd|despedir|despidir|echar|finiquito|contrato|carta|marca|sociedad|empresa|multa|deuda|reclamo|demanda|notificacion|cotizacion|acoso|trabajo|trabajador|empleador|firmar|firmo/.test(currentScope);
   const combined = hasCurrentTopic ? currentScope : normalizeLoose(`${getUserHistoryText(history)} ${message || ""}`);
   return {
-    area: /despido|desped|desepd|finiquito|trabajador|empleador|sueldo|cotizacion|laboral|renuncia/.test(combined) ? "laboral" : /contrato|arriendo|multa|clausula|penalidad/.test(combined) ? "contratos" : "general",
+    area: /despido|despid|desped|desepd|despedir|despidir|echar|finiquito|trabajador|empleador|sueldo|cotizacion|laboral|renuncia/.test(combined) ? "laboral" : /contrato|arriendo|multa|clausula|penalidad/.test(combined) ? "contratos" : "general",
     isWorker: /soy trabajador|trabajador|me despid|me echaron|mi empleador|mi jefe|trabajo en/.test(combined),
     isEmployer: /soy empleador|tengo trabajadores|mi trabajador|empresa despid/.test(combined),
     hasFiniquito: /finiquito/.test(combined),
@@ -731,11 +731,22 @@ function extractConversationFacts(message, history = [], documentContext = null)
     asksDismissalLetter: /carta|causal|motivo del despido|por que me despidieron|por qué me despidieron/.test(normalizeLoose(message)),
     asksHarassment: /acos|hostigamiento|ley karin|maltrato|violencia/.test(combined),
     asksClarify: /no entiendo|no entendi|no entendí|explicame|explícame|mas simple|más simple|en simple|que significa|qué significa|como asi|cómo así/.test(normalizeLoose(message)),
+    expectsDismissal: /me despediran|me despidiran|me despedir[aá]n|me van a despedir|me van a despidir|me echaran|me echar[aá]n|me quieren despedir|me quieren despidir|me avisaron que me despediran|me avisaron que me despidiran|me avisaron que me despedir[aá]n|despido pronto|despediran pronto|despidiran pronto|despedir[aá]n pronto/.test(combined),
+    hasNoDocuments: /no tengo nada|no tengo documento|no tengo documentos|solo se|solo sé|aun no|aún no|todavia no|todavía no/.test(normalizeLoose(message)),
     isShortFollowUp: normalizeLoose(message).split(" ").filter(Boolean).length <= 4
   };
 }
 
 function buildLaborConversationalAnswer(text, facts, shouldEscalate) {
+  if (facts.expectsDismissal && facts.hasNoDocuments) {
+    return [
+      "Ya, ahí cambia el enfoque: todavía no estás revisando un finiquito, estás preparándote antes de que ocurra el despido.",
+      "Por ahora no firmes nada apurado ni renuncies si no quieres renunciar. Guarda contrato, liquidaciones, mensajes, correos, turnos, comprobantes de pago y cualquier conversación donde te hayan anticipado el despido. Si te entregan carta, pide copia y revisa la causal antes de firmar cualquier finiquito conforme.",
+      "Si te llaman a firmar, puedes decir que necesitas leerlo con calma antes de firmar. Y si te presionan, anota fecha, hora, quién habló contigo y qué te dijeron.",
+      "¿Ya te dijeron una fecha concreta o solo escuchaste que te podrían despedir?"
+    ].join("\n\n");
+  }
+
   if (facts.isShortFollowUp && /liquidacion|liquidaciones|liquidación/.test(text)) {
     return [
       "La liquidación de sueldo es el papel donde aparece cómo se armó tu pago mensual: sueldo base, bonos, descuentos, cotizaciones y líquido a pagar.",
@@ -1087,7 +1098,7 @@ function detectService(message, documentContext, history = []) {
   const currentText = `${message || ""} ${documentText}`.toLowerCase();
   const historyText = getUserHistoryText(history).toLowerCase();
   const checks = [
-    ["laboral", ["despido", "despid", "desped", "desepd", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia", "carta de despido", "necesidades de la empresa", "causal"]],
+    ["laboral", ["despido", "despid", "desped", "desepd", "despedir", "despidir", "despediran", "despidiran", "despedirán", "echar", "finiquito", "trabajo", "trabajador", "empleador", "sueldo", "jornada", "laboral", "cotizacion", "cotización", "renuncia", "carta de despido", "necesidades de la empresa", "causal"]],
     ["revision-contratos", ["contrato", "cláusula", "clausula", "firmar", "arriendo", "multa", "penalidad", "renovación", "renovacion"]],
     ["reclamaciones-defensa", ["reclamo", "demanda", "notificación", "notificacion", "deuda", "plazo", "defensa"]],
     ["constitucion-empresas", ["empresa", "sociedad", "constituir", "emprendimiento", "socio"]],
