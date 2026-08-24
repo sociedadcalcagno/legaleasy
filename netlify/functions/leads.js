@@ -5,7 +5,6 @@ exports.handler = async (event) => {
 
   const body = parseBody(event.body);
   const id = `LE-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-  const appointmentUrl = process.env.APPOINTMENT_URL || "https://wa.me/56933553024?text=Hola%20LegalEasy%2C%20quiero%20agendar%20una%20orientacion%20legal";
   const toEmail = process.env.LEADS_TO_EMAIL || "sociedadcalcagno@gmail.com";
   const fromEmail = process.env.LEADS_FROM_EMAIL || "LegalEasy <onboarding@resend.dev>";
 
@@ -19,7 +18,6 @@ exports.handler = async (event) => {
     ok: true,
     id,
     delivery: emailResult.ok ? "email" : "stored-without-email",
-    appointmentUrl: body.wantsAppointment ? appointmentUrl : "",
     note: emailResult.ok
       ? `Caso enviado por correo a ${toEmail}.`
       : "Caso recibido, pero no se pudo enviar correo. Revisa RESEND_API_KEY en Netlify."

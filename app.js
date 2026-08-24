@@ -531,7 +531,7 @@ function storePendingLead(payload) {
   localStorage.setItem("legaleasyPendingLeads", JSON.stringify(pendingLeads.slice(-20)));
 }
 
-function openLeadWhatsApp(payload) {
+function openLeadEmailFallback(payload) {
   const text = [
     "Hola LegalEasy, quiero derivar este caso a un asistente.",
     `Nombre: ${payload.name}`,
@@ -542,7 +542,7 @@ function openLeadWhatsApp(payload) {
     `Caso: ${payload.message}`
   ].filter(Boolean).join("\n");
 
-  window.open(`https://wa.me/56933553024?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  window.location.href = `mailto:sociedadcalcagno@gmail.com?subject=${encodeURIComponent("Nuevo caso LegalEasy")}&body=${encodeURIComponent(text)}`;
 }
 
 async function sendMessage() {
@@ -860,8 +860,8 @@ async function submitLead(event) {
 
     if (!response.ok) {
       storePendingLead(payload);
-      openLeadWhatsApp(payload);
-      leadStatus.textContent = "No hay API activa en este dominio. Guardé el caso en este navegador y abrí WhatsApp para enviarlo al equipo.";
+      openLeadEmailFallback(payload);
+      leadStatus.textContent = "No hay API activa en este dominio. Guardé el caso en este navegador y abrí un correo para enviarlo al equipo.";
       setTimeout(closeLeadModal, 2600);
       return;
     }
@@ -869,9 +869,6 @@ async function submitLead(event) {
     leadStatus.textContent = data.delivery === "email"
       ? `Caso recibido (${data.id}). Enviamos los antecedentes por correo al equipo LegalEasy.`
       : `Caso recibido (${data.id}). Revisa la configuración de correo para notificar al equipo.`;
-    if (data.appointmentUrl) {
-      window.open(data.appointmentUrl, "_blank", "noopener,noreferrer");
-    }
     leadForm.reset();
     setTimeout(closeLeadModal, 1800);
   } catch {
@@ -885,8 +882,8 @@ async function submitLead(event) {
       appointmentPreference: leadAppointmentPreference.value.trim()
     };
     storePendingLead(payload);
-    openLeadWhatsApp(payload);
-    leadStatus.textContent = "No hay API activa en este dominio. Guardé el caso en este navegador y abrí WhatsApp para enviarlo al equipo.";
+    openLeadEmailFallback(payload);
+    leadStatus.textContent = "No hay API activa en este dominio. Guardé el caso en este navegador y abrí un correo para enviarlo al equipo.";
     setTimeout(closeLeadModal, 2600);
   }
 }

@@ -1701,6 +1701,7 @@ a {
 }
 
 .lead-modal-dialog input,
+.lead-modal-dialog select,
 .lead-modal-dialog textarea {
   width: 100%;
   padding: 0.8rem 0.9rem;

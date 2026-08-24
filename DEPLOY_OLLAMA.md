@@ -33,7 +33,6 @@ curl -X POST http://localhost:3001/api/chat \
 
 - `OLLAMA_URL=http://ollama:11434/api/generate`
 - `OLLAMA_MODEL=llama3.2:1b`
-- `APPOINTMENT_URL=https://wa.me/56933553024?...`
 - `ADMIN_TOKEN=...` si quieres consultar `/api/leads?token=...`
 
 ## Punto crítico
