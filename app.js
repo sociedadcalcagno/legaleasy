@@ -866,7 +866,9 @@ async function submitLead(event) {
       return;
     }
 
-    leadStatus.textContent = `Caso recibido (${data.id}). Un asistente podrá revisar tu consulta.`;
+    leadStatus.textContent = data.delivery === "email"
+      ? `Caso recibido (${data.id}). Enviamos los antecedentes por correo al equipo LegalEasy.`
+      : `Caso recibido (${data.id}). Revisa la configuración de correo para notificar al equipo.`;
     if (data.appointmentUrl) {
       window.open(data.appointmentUrl, "_blank", "noopener,noreferrer");
     }
