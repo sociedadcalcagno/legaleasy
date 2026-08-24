@@ -46,7 +46,8 @@ async function sendLeadEmail({ id, body, toEmail, fromEmail }) {
         subject,
         html,
         text,
-        reply_to: cleanText(body.email, 180) || undefined
+        reply_to: cleanText(body.email, 180) || undefined,
+        attachments: buildAttachments(body)
       })
     });
 
@@ -85,9 +86,40 @@ function buildLeadRows(id, body) {
     ["Quiere agendar", body.wantsAppointment ? "Sí" : "No"],
     ["Preferencia horario", cleanText(body.appointmentPreference, 240)],
     ["Documento", cleanText(body.documentName, 180)],
+    ["Tipo documento", cleanText(body.documentType, 120)],
     ["Resumen", cleanText(body.message, 3000)],
     ["Historial", history]
   ];
+}
+
+function buildAttachments(body) {
+  const documentName = cleanText(body.documentName, 180);
+  const fileBase64 = typeof body.documentFileBase64 === "string" ? body.documentFileBase64 : "";
+  const documentText = cleanText(body.documentText, 12000);
+
+  if (documentName && fileBase64 && fileBase64.length <= 9_000_000) {
+    return [{
+      filename: documentName,
+      content: fileBase64
+    }];
+  }
+
+  if (documentName && documentText) {
+    return [{
+      filename: `${sanitizeFilename(documentName)}.txt`,
+      content: Buffer.from(documentText, "utf8").toString("base64")
+    }];
+  }
+
+  return undefined;
+}
+
+function sanitizeFilename(value) {
+  return String(value || "documento")
+    .replace(/\.[a-z0-9]{1,8}$/i, "")
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "documento";
 }
 
 function parseBody(body) {

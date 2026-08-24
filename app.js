@@ -801,6 +801,10 @@ function buildLeadSummary(source) {
     service,
     documentName: documentData?.name || "",
     documentReadable: Boolean(documentData?.readable),
+    documentType: documentData?.type || "",
+    documentExtension: documentData?.extension || "",
+    documentFileBase64: documentData?.fileBase64 || "",
+    documentText: documentData?.text || "",
     history,
     message: [
       documentLine,

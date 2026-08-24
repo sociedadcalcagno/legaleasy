@@ -202,6 +202,10 @@ async function handleCreateLead(request, response) {
   const wantsAppointment = Boolean(body.wantsAppointment);
   const documentName = cleanText(body.documentName, 180);
   const documentReadable = Boolean(body.documentReadable);
+  const documentType = cleanText(body.documentType, 120);
+  const documentExtension = cleanText(body.documentExtension, 20);
+  const documentFileBase64 = typeof body.documentFileBase64 === "string" ? body.documentFileBase64.slice(0, 9_000_000) : "";
+  const documentText = cleanText(body.documentText, 12000);
   const history = Array.isArray(body.history) ? body.history.slice(-10).map((item) => ({
     role: item?.role === "assistant" ? "assistant" : "user",
     content: cleanText(item?.content, 1600)
@@ -228,6 +232,10 @@ async function handleCreateLead(request, response) {
     appointmentPreference,
     documentName,
     documentReadable,
+    documentType,
+    documentExtension,
+    documentFileBase64,
+    documentText,
     history
   };
 
